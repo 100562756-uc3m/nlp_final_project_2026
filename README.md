@@ -12,7 +12,7 @@ This application implements a Retrieval-Augmented Generation (RAG) system to ans
 
 ## Installation
 1. Install dependencies: `pip install -r requirements.txt`
-2. Set UC3M_API_KEY in your terminal → $env:UC3M_API_KEY="api key here"
+2. Set `UC3M_API_KEY` in your terminal → `$env:UC3M_API_KEY="api key here"`
 3. Run the app: `streamlit run app.py`
 
 ## Design Decisions 
