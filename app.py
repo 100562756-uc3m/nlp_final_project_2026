@@ -4,7 +4,7 @@ import streamlit as st
 
 from src.api import call_uc3m_api
 from src.prompts import get_main_rag_prompt, get_summary_prompt
-from src.system import format_context_for_prompt, load_faiss_bundle, retrieve_context
+from src.system import format_context_for_prompt, load_faiss_bundle, retrieve_context, translate_query_for_retrieval
 
 
 st.set_page_config(page_title="UC3M NLP Project", layout="wide")
@@ -47,9 +47,11 @@ if user_query:
     st.session_state.messages.append({"role": "user", "content": user_query})
     with st.chat_message("user"):
         st.markdown(user_query)
+    
+    search_query = translate_query_for_retrieval(user_query) #multilanguage function
 
     retrieved = retrieve_context(
-        user_query,
+        search_query,
         model=model,
         index=index,
         chunks=chunks,
