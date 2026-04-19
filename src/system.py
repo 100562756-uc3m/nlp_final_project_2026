@@ -7,7 +7,7 @@ from typing import Iterable
 import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
-
+from src.api import call_uc3m_api
 
 EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
@@ -114,3 +114,31 @@ def format_context_for_prompt(retrieved_chunks: list[dict]) -> str:
             f"Content: {item['content']}"
         )
     return "\n\n".join(lines)
+
+
+def translate_query_for_retrieval(query: str) -> str:
+    translation_prompt = (
+        "Translate the following medical question to English. "
+        "Respond ONLY with the translation, no extra text: "
+        f"'{query}'"
+    )
+    translated = call_uc3m_api(translation_prompt)
+    
+    # If error return the original 
+    if "Error" in translated:
+        return query
+    return translated.strip().replace('"', '').replace("'", "")
+
+def get_bot_response(user_query: str, model, index, chunks):
+    # translate query
+    search_query = translate_query_for_retrieval(user_query)
+    retrieved_chunks = retrieve_context(search_query, model, index, chunks, k=5, score_threshold=0.25)
+    if not retrieved_chunks:
+        return "I'm sorry, I don't have enough information in the document database to answer that."
+    # Final response
+    context_str = format_context_for_prompt(retrieved_chunks)
+    
+    from src.prompts import get_main_rag_prompt
+    final_prompt = get_main_rag_prompt(context_str, user_query)
+    
+    return call_uc3m_api(final_prompt)
