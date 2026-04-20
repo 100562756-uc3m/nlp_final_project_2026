@@ -30,3 +30,15 @@ def get_summary_prompt(answer: str) -> str:
         "Summarize the following answer in one short sentence while preserving the same language:\n\n"
         f"{answer}"
     )
+
+def get_suggestion_prompt(answer: str, original_query: str) -> str:
+    return (
+        f"The user original question was: '{original_query}'.\n"
+        f"The assistant answer was: '{answer}'.\n\n"
+        "Based on this, suggest ONE short follow-up question. "
+        "CRITICAL: You MUST write the suggestion in the SAME LANGUAGE as the user's original question. "
+        "If the question was in English, the suggestion MUST be in English. "
+        "If the question was in Spanish, the suggestion MUST be in Spanish. "
+        "Respond ONLY with the question, no extra text."
+    )
+
