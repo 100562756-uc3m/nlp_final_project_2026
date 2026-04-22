@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
+import time
 
 from src.api import call_uc3m_api
 from src.prompts import get_main_rag_prompt, get_summary_prompt, get_suggestion_prompt
@@ -64,6 +65,8 @@ for i, msg in enumerate(st.session_state.messages):
                 on_click=set_next_query,
                 args=(msg["suggestion"],)
             )
+        if msg["role"] == "assistant" and msg.get("elapsed"):
+            st.caption(f"⏱️ Response time: {msg['elapsed']:.2f} seconds")
 
 if st.session_state.next_query:
     user_query = st.session_state.next_query
@@ -72,6 +75,7 @@ else:
     user_query = st.chat_input("Ask a question about the DailyMed documents...")
 
 if user_query:
+    start_time = time.time()
     st.session_state.messages.append({"role": "user", "content": user_query})
     with st.chat_message("user"):
         st.markdown(user_query)
@@ -96,16 +100,20 @@ if user_query:
         if enable_summary:
             raw_summary = call_uc3m_api(get_summary_prompt(answer))
             summary = translate_response_to_target(raw_summary, original_lang)
+    end_time = time.time()  
+    elapsed_time = end_time - start_time 
+
 
     assistant_payload = {
         "role": "assistant", 
         "content": answer, 
         "sources": retrieved,
         "suggestion": suggestion,
-        "summary": summary
+        "summary": summary,
+        "elapsed": elapsed_time
     }
 
-   
+
     with st.chat_message("assistant"):
         st.markdown(assistant_payload["content"])
         
@@ -131,5 +139,8 @@ if user_query:
             st.divider()
             st.info(f"**Summary:** {assistant_payload['summary']}")
 
+        st.caption(f"⏱️ Response time: {assistant_payload['elapsed']:.2f} seconds")
+        
+
     st.session_state.messages.append(assistant_payload)
-    st.rerun()
+    #st.rerun()
