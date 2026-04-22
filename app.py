@@ -4,8 +4,15 @@ import streamlit as st
 
 from src.api import call_uc3m_api
 from src.prompts import get_main_rag_prompt, get_summary_prompt, get_suggestion_prompt
-from src.system import format_context_for_prompt, load_faiss_bundle, retrieve_context, translate_query_for_retrieval
-
+from src.system import (
+    format_context_for_prompt, 
+    load_faiss_bundle, 
+    retrieve_context, 
+    get_bot_response,           
+    detect_language,            
+    translate_to_english,      
+    translate_response_to_target 
+)
 
 st.set_page_config(page_title="UC3M NLP Project", layout="wide")
 
@@ -68,39 +75,42 @@ if user_query:
     st.session_state.messages.append({"role": "user", "content": user_query})
     with st.chat_message("user"):
         st.markdown(user_query)
+
     
-    search_query = translate_query_for_retrieval(user_query)
-    retrieved = retrieve_context(
-        search_query,
-        model=model,
-        index=index,
-        chunks=chunks,
-        k=top_k,
-        score_threshold=score_threshold,
+    from src.system import get_bot_response, detect_language, translate_response_to_target
+
+    # language detection
+    original_lang = detect_language(user_query)
+    answer, retrieved = get_bot_response(
+        user_query, model, index, chunks, top_k, score_threshold
     )
 
-    if not retrieved:
-        answer = "I'm sorry, I don't have enough information in the document database to answer that."
-        assistant_payload = {"role": "assistant", "content": answer, "sources": []}
-    else:
-        context = format_context_for_prompt(retrieved)
-        prompt = get_main_rag_prompt(context, user_query)
-        answer = call_uc3m_api(prompt)
-        
-        suggestion_prompt = get_suggestion_prompt(answer, user_query)
-        suggestion = call_uc3m_api(suggestion_prompt).strip().replace('"', '')
-        
-        assistant_payload = {
-            "role": "assistant", 
-            "content": answer, 
-            "sources": retrieved,
-            "suggestion": suggestion
-        }
+    
+    suggestion = None
+    summary = None
+    
+    if retrieved:
+        raw_suggestion = call_uc3m_api(get_suggestion_prompt(answer, user_query))
+        suggestion = translate_response_to_target(raw_suggestion, original_lang)
+        # summary
+        if enable_summary:
+            raw_summary = call_uc3m_api(get_summary_prompt(answer))
+            summary = translate_response_to_target(raw_summary, original_lang)
 
+    assistant_payload = {
+        "role": "assistant", 
+        "content": answer, 
+        "sources": retrieved,
+        "suggestion": suggestion,
+        "summary": summary
+    }
+
+   
     with st.chat_message("assistant"):
         st.markdown(assistant_payload["content"])
         
-        if assistant_payload.get("suggestion") and "Error" not in assistant_payload["suggestion"]:
+        # Mostrar botones de sugerencia
+        if assistant_payload.get("suggestion") and retrieved:
             st.write("💡 **Recommended follow-up:**")
             st.button(
                 assistant_payload["suggestion"],
@@ -109,19 +119,17 @@ if user_query:
                 args=(assistant_payload["suggestion"],)
             )
 
+        # Mostrar fuentes (Sources)
         if assistant_payload["sources"]:
             with st.expander("Sources"):
                 for src in assistant_payload["sources"]:
-                    st.markdown(
-                        f"**{src['drug_name']}** | {src['section_title']} | set_id: `{src['set_id']}` | score: {src['score']:.3f}"
-                    )
+                    st.markdown(f"**{src['drug_name']}** | {src['section_title']}")
                     st.write(src["content"])
 
-        if enable_summary and assistant_payload["sources"] and "don't have enough information" not in assistant_payload["content"].lower():
+        # Mostrar resumen automático (Extra Feature)
+        if assistant_payload.get("summary"):
             st.divider()
-            summary = call_uc3m_api(get_summary_prompt(assistant_payload["content"]))
-            st.info(summary)
+            st.info(f"**Summary:** {assistant_payload['summary']}")
 
     st.session_state.messages.append(assistant_payload)
-    
     st.rerun()
