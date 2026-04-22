@@ -115,30 +115,55 @@ def format_context_for_prompt(retrieved_chunks: list[dict]) -> str:
         )
     return "\n\n".join(lines)
 
+#multilanguage
+def detect_language(query: str) -> str:
+    """Detect language of query"""
+    prompt = f"Identify the language of the following text. Respond ONLY with the language name (e.g., 'English', 'Spanish', 'French'): '{query}'"
+    lang = call_uc3m_api(prompt)
+    return lang.strip().replace(".", "")
 
-def translate_query_for_retrieval(query: str) -> str:
-    translation_prompt = (
-        "Translate the following medical question to English. "
-        "Respond ONLY with the translation, no extra text: "
-        f"'{query}'"
-    )
-    translated = call_uc3m_api(translation_prompt)
-    
-    # If error return the original 
-    if "Error" in translated:
-        return query
-    return translated.strip().replace('"', '').replace("'", "")
+def translate_to_english(query: str) -> str:
+    """Translate to English"""
+    prompt = f"Translate the following medical query to English. Respond ONLY with the translation: '{query}'"
+    translated = call_uc3m_api(prompt)
+    return translated.strip().replace('"', '')
 
-def get_bot_response(user_query: str, model, index, chunks):
-    # translate query
-    search_query = translate_query_for_retrieval(user_query)
-    retrieved_chunks = retrieve_context(search_query, model, index, chunks, k=5, score_threshold=0.25)
-    if not retrieved_chunks:
-        return "I'm sorry, I don't have enough information in the document database to answer that."
-    # Final response
-    context_str = format_context_for_prompt(retrieved_chunks)
-    
+def translate_response_to_target(text: str, target_lang: str) -> str:
+    """Translate answer to original language fo the query"""
+    if target_lang.lower() == "english":
+        return text
+    prompt = f"Translate the following medical information to {target_lang}. Maintain the medical accuracy and tone. Respond ONLY with the translation: '{text}'"
+    return call_uc3m_api(prompt).strip()
+
+
+
+def get_bot_response(user_query: str, model, index, chunks, top_k=5, threshold=0.30):
+    from src.api import call_uc3m_api
     from src.prompts import get_main_rag_prompt
-    final_prompt = get_main_rag_prompt(context_str, user_query)
     
-    return call_uc3m_api(final_prompt)
+    # Language detection
+    original_lang = detect_language(user_query)
+    
+    # Translate 
+    if original_lang.lower() != "english":
+        search_query = translate_to_english(user_query)
+    else:
+        search_query = user_query
+    
+    # retrieve
+    retrieved_chunks = retrieve_context(search_query, model, index, chunks, k=top_k, score_threshold=threshold)
+    
+    if not retrieved_chunks:
+        error_msg = "I'm sorry, I don't have enough information in the document database to answer that."
+        return translate_response_to_target(error_msg, original_lang), []
+
+    # answer
+    context_str = format_context_for_prompt(retrieved_chunks)
+    final_prompt = get_main_rag_prompt(context_str, search_query)
+    answer_en = call_uc3m_api(final_prompt)
+    
+    # translate answer
+    final_answer = translate_response_to_target(answer_en, original_lang)
+    
+    return final_answer, retrieved_chunks
+
