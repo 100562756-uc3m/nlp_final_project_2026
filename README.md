@@ -24,16 +24,21 @@ This application implements a high-resolution Retrieval-Augmented Generation (RA
    pip install -r requirements.txt
    ```
 
-3. **Configure Environment Variables**:
+3. **External Data Setup**:
+   Because the vector database and clinical datasets exceed GitHub's file size limits, the core data must be added manually:
+   * Download the `data.zip` file from the provided [Google Drive link](https://drive.google.com/file/d/1Dz8N4xBRboWqaSixpDqQRUfnRCr-uKD6/view?usp=drive_link).
+   * Uncompress the folder into the project root so you have a directory named `/data` containing the FAISS index and JSONL files.
+
+4. **Configure Environment Variables**:
    Create a file named .env in the root directory and add your UC3M API key:
     ```bash
     UC3M_API_KEY=your_actual_key_here
     ```
     *(Note: The .env file is excluded from version control via .gitignore for security).*
 
-4. **Run the Application**:
+5. **Run the Application**:
    ```bash
-   streamlit run app.py
+   python3 -m streamlit run app.py
    ```
 
 ## Design Decisions
