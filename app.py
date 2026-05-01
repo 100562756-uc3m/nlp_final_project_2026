@@ -32,6 +32,12 @@ with st.spinner("Loading clinical database... Please wait."):
 st.title("DailyMed RAG Chatbot")
 st.caption("Educational project. Informational only, not medical advice.")
 
+# --- INITIALIZE STATE ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "next_query" not in st.session_state:
+    st.session_state.next_query = None
+
 # --- SIDEBAR ---
 st.sidebar.header("Retrieval Settings")
 top_k = st.sidebar.slider("Top-K (Context Chunks)", min_value=1, max_value=10, value=5)
@@ -43,11 +49,53 @@ if st.sidebar.button("Clear Chat"):
     st.session_state.next_query = None
     st.rerun()
 
+# --- EXPORT CHAT IN THE SIDEBAR ---
+with st.sidebar:
+    st.markdown("### Export")
+    if "messages" in st.session_state and len(st.session_state.messages) > 0:
+        chat_history = ""
+        for msg in st.session_state.messages:
+            role_label = "User" if msg["role"] == "user" else "Assistant"
+            chat_history += f"=== {role_label.upper()} ===\n"
+            chat_history += f"{msg['content']}\n\n"
+            if msg["role"] == "assistant" and msg.get("sources"):
+                chat_history += "Consulted Sources:\n"
+                for idx, s in enumerate(msg["sources"], start=1):
+                    meta = s.get("metadata", {})
+                    raw_drug = meta.get('drug', '')
+                    if not raw_drug or str(raw_drug).strip() in ["", "None", "****"]:
+                        drug_name = "FDA Clinical Label"
+                    else:
+                        drug_name = str(raw_drug)[:60]
+                        
+                    group = meta.get('group', 'General Info')
+                    score = s.get('score', 0.0)
+                    content = s.get('content', 'No content available.')
+                    
+                    # Formato detallado para el .txt
+                    chat_history += f"--- SOURCE {idx} ---\n"
+                    chat_history += f"Drug: {drug_name} | Group: {group}\n"
+                    chat_history += f"Similarity Score: {score:.3f}\n"
+                    chat_history += f"Content:\n{content}\n\n"
+                
+            chat_history += "-" * 40 + "\n\n"
+            
+
+        st.download_button(
+            label="📥 Download history(.txt)",
+            data=chat_history,
+            file_name="search_history.txt",
+            mime="text/plain"
+        )
+    else:
+        st.info("The history is empty. Make a question first.")
+
+
 # --- INITIALIZE STATE ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "next_query" not in st.session_state:
-    st.session_state.next_query = None
+#if "messages" not in st.session_state:
+#    st.session_state.messages = []
+#if "next_query" not in st.session_state:
+#    st.session_state.next_query = None
 
 # --- CHAT HISTORY RENDERER ---
 # This loop handles both old and new messages for consistent UI
