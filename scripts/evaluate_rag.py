@@ -57,7 +57,7 @@ def retrieval_hit(retrieved: list[dict], expected_sections: list[str]) -> bool:
 
 
 def citation_present(answer: str) -> bool:
-    return bool(re.search(r"\[Source\s+\d+\]", answer))
+    return bool(re.search(r"\[?Source \d+\]?", answer))
 
 
 def p95(values: list[float]) -> float:
