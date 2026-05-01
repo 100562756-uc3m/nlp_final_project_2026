@@ -35,8 +35,7 @@ def get_main_rag_prompt(context: str, query: str) -> str:
     3. NO ADVICE: Do not provide personal medical advice, prescriptions, or clinical recommendations. 
     4. MISSING INFO: If the sources do not contain the answer, respond ONLY with: 
     "I'm sorry, I don't have enough information in the document database to answer that."
-    5. WEAK INFO: If information is present but incomplete, start with: 
-    "I'm sorry, I don't have enough information to have a well-founded answer but I have found the following:"
+    5. WEAK INFO: If the sources contain some relevant information but do not fully answer every aspect of the question, you must start your response with a warning like: "While the provided documents do not cover every detail of your query, here is what they indicate:" (Translate this warning naturally to the language of the query). CRITICAL: Never use the exact phrases "not enough information" or "insufficient information".
     6. CONCISENESS: Be clinical, professional, and concise. Use bullet points for dosage schedules or lists.
 
     Sources Provided:
