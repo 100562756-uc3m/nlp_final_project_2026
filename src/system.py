@@ -111,6 +111,45 @@ def retrieve_context(query, model, index, chunks, k=8, score_threshold=0.25):
             
     return results
 
+def retrieve_context(query, model, index, chunks, k=8, score_threshold=0.25):
+    query_vec = model.encode([query], normalize_embeddings=True).astype("float32")
+    
+    # FAISS devuelve la Distancia L2
+    distances, indices = index.search(query_vec, k)
+    
+    results = []
+    unique_texts = []
+
+    for dist, idx in zip(distances[0], indices[0]):
+        if idx < 0: continue
+        
+        # 1. Transformamos la Distancia L2 en un "Similarity Score" (de 0 a 1)
+        # Si la distancia es 0, la similitud es 1 (100%).
+        # Si la distancia es grande (ej. 3), la similitud es baja (0.25 o 25%).
+        similarity = 1.0 / (1.0 + float(dist))
+        
+        # 2. Ahora SÍ filtramos por similitud: "Si es MENOR que el umbral, lo descarto"
+        if similarity < score_threshold:
+            continue
+        
+        current_text = chunks[idx]["content"]
+        
+        is_duplicate = False
+        for seen_text in unique_texts:
+            ratio = difflib.SequenceMatcher(None, current_text[:500], seen_text[:500]).ratio()
+            if ratio > 0.90:
+                is_duplicate = True
+                break
+        
+        if not is_duplicate:
+            item = dict(chunks[idx])
+            # 3. Guardamos la SIMILITUD en lugar de la distancia
+            item["score"] = similarity 
+            results.append(item)
+            unique_texts.append(current_text)
+            
+    return results
+
 def format_context_for_prompt(retrieved_chunks: list[dict]) -> str:
     """Formats the metadata and text for the LLM input."""
     lines: list[str] = []
@@ -165,6 +204,10 @@ def get_bot_response(user_query: str, model, index, chunks, top_k=5, threshold=0
     context_str = format_context_for_prompt(retrieved_chunks)
     final_prompt = get_main_rag_prompt(context_str, search_query)
     answer_en = call_uc3m_api(final_prompt)
+
+    #Add that dont show sources if not sufficient data
+    if "I'm sorry, I don't have enough information in the document database to answer that." in answer_en or "don't have enough information" in answer_en:
+        retrieved_chunks = []
     
     # 4. Final Translation
     final_answer = translate_response_to_target(answer_en, original_lang)
