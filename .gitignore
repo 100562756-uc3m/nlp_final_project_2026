@@ -1,5 +1,20 @@
+# --- Python & Environment ---
 __pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.env
+
+# --- Testing & OS ---
 .pytest_cache/
 .DS_Store
-.venv/
-.env
+Thumbs.db
+
+# --- Project Specific: Data ---
+# Ignore all data folder contents by default
+data/*
+
+# Specifically ignore the backup zip created
+data.zip

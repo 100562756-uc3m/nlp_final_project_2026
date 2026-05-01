@@ -1,6 +1,19 @@
+# UI and Web Interface
 streamlit
+
+# Vector Database and Retrieval
 faiss-cpu
+langchain
+langchain-huggingface
+langchain-community
+langchain-core
+
+# Embeddings and NLP
 sentence-transformers
+transformers
+numpy
+
+# Utilities
+python-dotenv
 requests
 urllib3
-numpy
