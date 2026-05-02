@@ -2,17 +2,16 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
-from typing import Iterable
-
 import faiss
 import difflib
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from pathlib import Path
+from sentence_transformers import SentenceTransformer, CrossEncoder 
 from src.api import call_uc3m_api
 
-# Updated to the model used for the 600k chunks
+# Models
 EMBED_MODEL_NAME = "sentence-transformers/all-mpnet-base-v2"
+RERANK_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2" 
 
 def load_jsonl(path: str | Path) -> list[dict]:
     path = Path(path)
@@ -26,24 +25,18 @@ def load_jsonl(path: str | Path) -> list[dict]:
                 records.append(json.loads(line))
     return records
 
-def load_faiss_bundle(
-    index_dir: str | Path,
-    model_name: str = EMBED_MODEL_NAME,
-    ):
-    """
-    Loads the FAISS index and the corresponding metadata chunks.
-    Paths:
-    FAISS files are in: data/vector_db/smart_index/
-    JSONL file is in:  data/vector_db/
-    """
-    print(f"Loading Embedding Model: {model_name}...")
-    model = SentenceTransformer(model_name)
+def load_faiss_bundle(index_dir: str | Path):
+    """Loads Bi-Encoder, Cross-Encoder, FAISS index, and Metadata."""
+    print(f"Loading Bi-Encoder: {EMBED_MODEL_NAME}...")
+    model = SentenceTransformer(EMBED_MODEL_NAME)
+    
+    print(f"Loading Cross-Encoder: {RERANK_MODEL_NAME}...")
+    reranker = CrossEncoder(RERANK_MODEL_NAME)
     
     # Path to the FAISS binary files
     index_path = os.path.join(index_dir, "index.faiss")
     
-    # Path to the JSONL file (which is one level up from the index_dir)
-    # index_dir is 'data/vector_db/smart_index', so we go up to 'data/vector_db/'
+    # Path to the JSONL file
     parent_dir = os.path.dirname(index_dir)
     meta_path = os.path.join(parent_dir, "smart_index_inspect.jsonl")
     
@@ -58,99 +51,86 @@ def load_faiss_bundle(
     print(f"Loading Metadata from {meta_path} (this may take a minute)...")
     chunks = load_jsonl(meta_path)
     
-    return model, index, chunks
+    return model, reranker, index, chunks
 
-def retrieve_context(query, model, index, chunks, k=5, score_threshold=0.30):
-    query_vec = model.encode([query], convert_to_numpy=True, normalize_embeddings=True).astype("float32")
-    scores, indices = index.search(query_vec, k)
-    
-    results = []
-    seen_content = set() # To prevent duplicates
-
-    for score, idx in zip(scores[0], indices[0]):
-        if idx < 0 or idx >= len(chunks): continue
-        if float(score) < score_threshold: continue
-        
-        content = chunks[idx]["content"]
-        # Only add if we haven't seen this EXACT text in this search
-        if content not in seen_content:
-            item = dict(chunks[idx])
-            item["score"] = float(score)
-            results.append(item)
-            seen_content.add(content)
-            
-    return results
-
-def retrieve_context(query, model, index, chunks, k=8, score_threshold=0.25):
+# --- Retrieval & Reranking ---
+def retrieve_context(query, model, reranker, index, chunks, k=5, score_threshold=0.25):
+    """
+    Two-stage retrieval: 
+    1. Bi-Encoder search (FAISS) for candidates.
+    2. Cross-Encoder re-ranking for final selection.
+    """
+    # STAGE 1: Expanded Search
+    initial_k = k * 2 
     query_vec = model.encode([query], normalize_embeddings=True).astype("float32")
-    scores, indices = index.search(query_vec, k)
-    
-    results = []
-    unique_texts = []
+    distances, indices = index.search(query_vec, initial_k)
 
-    for score, idx in zip(scores[0], indices[0]):
-        if idx < 0 or float(score) < score_threshold:
-            continue
-        
-        current_text = chunks[idx]["content"]
-        
-        # Check if this text is too similar to what we already have
-        is_duplicate = False
-        for seen_text in unique_texts:
-            # If the texts are more than 90% similar, ignore the new one
-            ratio = difflib.SequenceMatcher(None, current_text[:500], seen_text[:500]).ratio()
-            if ratio > 0.90:
-                is_duplicate = True
-                break
-        
-        if not is_duplicate:
-            item = dict(chunks[idx])
-            item["score"] = float(score)
-            results.append(item)
-            unique_texts.append(current_text)
-            
-    return results
-
-def retrieve_context(query, model, index, chunks, k=8, score_threshold=0.25):
-    query_vec = model.encode([query], normalize_embeddings=True).astype("float32")
-    
-    # FAISS devuelve la Distancia L2
-    distances, indices = index.search(query_vec, k)
-    
-    results = []
-    unique_texts = []
-
+    candidates = []
     for dist, idx in zip(distances[0], indices[0]):
         if idx < 0: continue
         
-        # 1. Transformamos la Distancia L2 en un "Similarity Score" (de 0 a 1)
-        # Si la distancia es 0, la similitud es 1 (100%).
-        # Si la distancia es grande (ej. 3), la similitud es baja (0.25 o 25%).
-        similarity = 1.0 / (1.0 + float(dist))
-        #similarity coseno
+        content = chunks[idx].get("content", "")
+        
+        # Ignore "noise" chunks that are too short to contain clinical meaning
+        if len(content.strip()) < 30:
+            continue
+            
+        # Convert L2 distance to Cosine Similarity
         similarity = 1.0 - (float(dist) / 2.0)
         
-        # 2. Ahora SÍ filtramos por similitud: "Si es MENOR que el umbral, lo descarto"
-        if similarity < score_threshold:
+        # Filter by similarity 
+        if similarity < score_threshold: 
             continue
         
-        current_text = chunks[idx]["content"]
+        candidates.append(chunks[idx])
+
+    if not candidates:
+        return []
+    
+    # STAGE 2: Re-ranking
+    # Prepare pairs: [query, document_content]
+    pairs = [[query, c["content"]] for c in candidates]
+    rerank_scores = reranker.predict(pairs)
+    
+    # Attach scores and sort by semantic relevance
+    for idx, score in enumerate(rerank_scores):
+        candidates[idx]["rerank_score"] = float(score)
+        # Normalize score for UI display (using sigmoid to put it in 0-1 range)
+        candidates[idx]["score"] = 1.0 / (1.0 + np.exp(-score)) 
+
+    # Sort descending by rerank score
+    candidates.sort(key=lambda x: x["rerank_score"], reverse=True)
+
+    # STAGE 3: Metadata-Aware Deduplication
+    final_results = []
+    seen_keys = set() 
+
+    for item in candidates:
+        meta = item.get("metadata", {})
+        drug = meta.get("drug", "Unknown")
+        # Optimization: 200 chars is enough to identify a duplicate section
+        content_snippet = item["content"][:200] 
         
         is_duplicate = False
-        for seen_text in unique_texts:
-            ratio = difflib.SequenceMatcher(None, current_text[:500], seen_text[:500]).ratio()
-            if ratio > 0.90:
-                is_duplicate = True
-                break
+        # Only compare against snippets from the SAME drug
+        for seen_drug, seen_text in seen_keys:
+            if drug == seen_drug:
+                # difflib is slow on long strings; 200 chars is much faster
+                ratio = difflib.SequenceMatcher(None, content_snippet, seen_text).ratio()
+                if ratio > 0.95:
+                    is_duplicate = True
+                    break
         
         if not is_duplicate:
-            item = dict(chunks[idx])
-            # 3. Guardamos la SIMILITUD en lugar de la distancia
-            item["score"] = similarity 
-            results.append(item)
-            unique_texts.append(current_text)
+            final_results.append(item)
+            seen_keys.add((drug, content_snippet))
             
-    return results
+        if len(final_results) >= k:
+            break
+            
+    return final_results
+
+# --- Quality & Formatting ---
 
 def assess_retrieval_quality(retrieved: list[dict], weak_threshold: float) -> str:
     """
@@ -167,7 +147,6 @@ def assess_retrieval_quality(retrieved: list[dict], weak_threshold: float) -> st
     if best_score < weak_threshold:
         return "weak"
     return "strong"
-
 
 def format_context_for_prompt(retrieved_chunks: list[dict]) -> str:
     """Formats the metadata and text for the LLM input."""
@@ -187,7 +166,7 @@ def format_context_for_prompt(retrieved_chunks: list[dict]) -> str:
         )
     return "\n\n".join(lines)
 
-# --- Multilanguage Logic ---
+# --- Translation & Language Logic ---
 
 def detect_language(query: str) -> str:
     prompt = f"Identify the language of the following text. Respond ONLY with the language name (e.g., 'English', 'Spanish', 'French'): '{query}'"
@@ -205,45 +184,6 @@ def translate_response_to_target(text: str, target_lang: str) -> str:
     prompt = f"Translate the following medical information to {target_lang}. Maintain medical accuracy. Respond ONLY with the translation: '{text}'"
     return call_uc3m_api(prompt).strip()
 
-
-
-def get_bot_response(user_query: str, model, index, chunks, top_k=5, threshold=0.30):
-    from src.prompts import get_main_rag_prompt
-    
-    # 1. Language Handling
-    original_lang = detect_language(user_query)
-    search_query = translate_to_english(user_query) if original_lang.lower() != "english" else user_query
-    
-    # 2. Vector Retrieval
-    retrieved_chunks = retrieve_context(search_query, model, index, chunks, k=top_k, score_threshold=threshold)
-    
-    #without info only respond sorry...
-    if not retrieved_chunks:
-        error_msg = "I'm sorry, I don't have enough information in the document database to answer that."
-        return translate_response_to_target(error_msg, original_lang), [], "none"
-    # 3. Evaluar calidad ANTES de construir el prompt
-    quality = assess_retrieval_quality(retrieved_chunks, weak_threshold=threshold+0.15)  # ← NUEVO
-
-    # 4. LLM Generation
-    context_str = format_context_for_prompt(retrieved_chunks)
-    final_prompt = get_main_rag_prompt(context_str, search_query, retrieval_quality=quality)
-    answer_en = call_uc3m_api(final_prompt)
-
-    #Add that dont show sources if not sufficient data
-    #if "I'm sorry, I don't have enough information in the document database to answer that." in answer_en or "don't have enough information" in answer_en:
-    #    retrieved_chunks = []
-     #   quality = "none"
-    REFUSAL_EXACT = "don't have enough information in the document database to answer that."
-    if REFUSAL_EXACT in answer_en.lower():
-        retrieved_chunks = []
-        quality = "none"
-
-    
-    # 4. Final Translation
-    final_answer = translate_response_to_target(answer_en, original_lang)
-    
-    return final_answer, retrieved_chunks, quality
-
 def get_language_code(lang_name: str) -> str:
     """Maps language names from detect_language to gTTS ISO codes."""
     mapping = {
@@ -257,3 +197,39 @@ def get_language_code(lang_name: str) -> str:
         "Thai": "th"
     }
     return mapping.get(lang_name, "en")
+
+# --- Main Logic ---
+def get_bot_response(user_query: str, model, reranker, index, chunks, top_k=5, threshold=0.30):
+    from src.prompts import get_main_rag_prompt
+    
+    # 1. Handle Language
+    original_lang = detect_language(user_query)
+    search_query = translate_to_english(user_query) if original_lang.lower() != "english" else user_query
+    
+    # 2. Retrieve & Rerank
+    retrieved_chunks = retrieve_context(search_query, model, reranker, index, chunks, k=top_k, score_threshold=threshold)
+    
+    #without info only respond sorry...
+    if not retrieved_chunks:
+        error_msg = "I'm sorry, I don't have enough information in the document database to answer that."
+        return translate_response_to_target(error_msg, original_lang), [], "none"
+    
+    # 3. Assess Quality
+    quality = assess_retrieval_quality(retrieved_chunks, weak_threshold=threshold+0.15)  # ← NUEVO
+
+    # 4. Generate Answer
+    context_str = format_context_for_prompt(retrieved_chunks)
+    final_prompt = get_main_rag_prompt(context_str, search_query, retrieval_quality=quality)
+    answer_en = call_uc3m_api(final_prompt)
+
+    # Add that dont show sources if not sufficient data
+    REFUSAL_EXACT = "don't have enough information in the document database to answer that."
+    if REFUSAL_EXACT in answer_en.lower():
+        retrieved_chunks = []
+        quality = "none"
+
+    # 5. Final Translation
+    final_answer = translate_response_to_target(answer_en, original_lang)
+    
+    return final_answer, retrieved_chunks, quality
+
