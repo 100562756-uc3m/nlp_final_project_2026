@@ -254,7 +254,8 @@ if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] 
             "suggestion": suggestion,
             "summary": summary,
             "elapsed": elapsed_time,
-            "retrieval_quality": quality
+            "retrieval_quality": quality,
+            "detected_lang": original_lang
         }
         st.session_state.messages.append(assistant_payload)
         st.rerun()
