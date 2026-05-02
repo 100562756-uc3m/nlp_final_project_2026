@@ -13,22 +13,37 @@ if str(PROJECT_ROOT) not in sys.path:
 import faiss
 from sentence_transformers import SentenceTransformer
 
-# Importamos tu traductor de sistema para que la evaluación sea justa
 from src.system import translate_to_english
+# Importamos el mapeo de Super-Grupos para traducir lo que devuelve FAISS
+from src.constants import SUPER_GROUP_MAP
 
 EMBED_MODEL = "sentence-transformers/all-mpnet-base-v2"
 K_VALUES    = [3, 5, 8, 10]
-T_VALUES    = [0.20, 0.3, 0.40, 0.6, 0.8]
+T_VALUES    = [0.20, 0.30, 0.40, 0.60, 0.80]
 
-# ── Helpers de Normalización y Matching Difuso ────────────────────────────────
+# ── Helpers y Limpieza de Fármacos ────────────────────────────────────────────
 def normalize(t: str) -> str:
     if not t: return ""
     t = re.sub(r"[^\w\s]", "", str(t).lower())
     return re.sub(r"\s+", " ", t).strip()
 
+# ¡Restauramos tu lista de palabras fantasma para los fármacos!
+DRUG_NOISE_WORDS = [
+    "tablets", "tablet", "capsules", "capsule", "injection", "solution",
+    "cream", "ointment", "gel", "patch", "suspension", "syrup", "drops",
+    "usp", "rx only", "extended release", "oral", "topical", "intravenous",
+    "intramuscular", "subcutaneous", "mg", "mcg", "ml", "percent"
+]
+
+def normalize_drug_name(name: str) -> str:
+    name = normalize(name)
+    for w in DRUG_NOISE_WORDS:
+        name = re.sub(rf'\b{w}\b', '', name)
+    return re.sub(r"\s+", " ", name).strip()
+
 def expected_keys(expected_support: list) -> list:
     return [
-        (normalize(s.get("drug_name", "")), normalize(s.get("section_title", "")))
+        (normalize_drug_name(s.get("drug_name", "")), normalize(s.get("section_title", "")))
         for s in expected_support
     ]
 
@@ -37,45 +52,18 @@ def fuzzy_match(str1: str, str2: str, threshold=0.75) -> bool:
     return difflib.SequenceMatcher(None, str1, str2).ratio() >= threshold
 
 def is_match(retrieved_tuple: tuple, expected_tuple: tuple) -> bool:
-    r_drug, r_sec = retrieved_tuple
-    e_drug, e_sec = expected_tuple
+    r_drug, r_sec = retrieved_tuple # r_sec ya viene traducido a Super-Grupo desde idx_map
+    e_drug, e_sec = expected_tuple  # e_sec es el Super-Grupo del JSON (ej. "usage_clinical")
     
-    # 1. Comprobamos la droga
+    # 1. Match de Droga (usando las drogas limpias de USP, etc.)
     drug_match = (e_drug in r_drug) or (r_drug in e_drug) or fuzzy_match(e_drug, r_drug, 0.65)
     
-    # Quitamos los números fantasma de las secciones (ej. "4 contraindications" -> "contraindications")
-    clean_e_sec = re.sub(r'^\d+[\.\-]?\s*', '', e_sec)
-    
-    # 2. Diccionario traductor ACTUALIZADO
-    section_mapping = {
-        "indications and usage": "usage_clinical",
-        "dosage and administration": "usage_clinical",
-        "dosage forms and strengths": "usage_clinical",
-        "boxed warning": "safety_risk",
-        "warnings": "safety_risk",
-        "warnings and precautions": "safety_risk",
-        "precautions": "safety_risk",
-        "contraindications": "safety_risk",
-        "adverse reactions": "adverse_interactions",
-        "drug interactions": "adverse_interactions",
-        "overdosage": "adverse_interactions",
-        "how supplied": "product_logistics",
-        "description": "product_logistics",
-        "storage and handling": "product_logistics",
-        "clinical pharmacology": "pharmacology",
-        "pregnancy": "special_populations",
-        "pediatric use": "special_populations",
-        "use in specific populations": "special_populations"
-    }
-    
-    mapped_e_sec = section_mapping.get(clean_e_sec, clean_e_sec)
-    
-    # 3. Comprobamos la sección
-    sec_match = (clean_e_sec in r_sec) or (r_sec in clean_e_sec) or (mapped_e_sec in r_sec) or fuzzy_match(mapped_e_sec, r_sec, 0.80)
+    # 2. Match de Sección directa (Super-Group vs Super-Group)
+    sec_match = (e_sec == r_sec) or (e_sec in r_sec) or (r_sec in e_sec)
     
     return drug_match and sec_match
 
-# ── Carga ligera del JSONL ────────────────────────────────────────────────────
+# ── Carga Inteligente del Metadata de FAISS ───────────────────────────────────
 def build_idx_map(meta_path: str) -> dict:
     print(f"Reading metadata from {meta_path} (streaming, light)...")
     idx_map = {}
@@ -86,15 +74,33 @@ def build_idx_map(meta_path: str) -> dict:
             
             chunk = json.loads(line)
             meta = chunk.get("metadata", {})
-            raw_drug = meta.get("drug",  chunk.get("drug_name", ""))
-            raw_sec  = meta.get("group", chunk.get("section_title", ""))
+            raw_drug = meta.get("drug", chunk.get("drug_name", ""))
             
-            idx_map[i] = (normalize(raw_drug), normalize(raw_sec))
+            # Cogemos la sección que haya en la BD (puede ser "group", "category" o el título)
+            raw_sec = meta.get("group", meta.get("category", chunk.get("section_title", "")))
+            
+            # TRUCO: Convertimos lo que haya en la BD (ej. "DOSAGE AND ADMINISTRATION") 
+            # a formato constante ("DOSAGE_AND_ADMINISTRATION") para buscar su Super-Grupo
+            clean_raw_sec = raw_sec.strip().upper().replace(" ", "_")
+            super_group = SUPER_GROUP_MAP.get(clean_raw_sec, clean_raw_sec)
+            
+            # Guardamos el fármaco LIMPIO y la sección traducida a Super-Grupo ("usage_clinical")
+            idx_map[i] = (normalize_drug_name(raw_drug), normalize(super_group))
             
     print(f"  Done — {len(idx_map)} chunks indexed.")
     return idx_map
 
-# ── Función de Recuperación Ligera ────────────────────────────────────────────
+def is_toc_chunk(drug: str, sec: str) -> bool:
+    toc_section_names = {
+        "general_info", "table of contents", "contents", 
+        "full prescribing information contents",
+        "product information", "index"
+    }
+    if sec in toc_section_names and (not drug or len(drug) < 3):
+        return True
+    return False
+
+# ── Recuperación FAISS ────────────────────────────────────────────────────────
 def retrieve(query, model, index, idx_map, k, threshold):
     vec = model.encode([query], normalize_embeddings=True).astype("float32")
     distances, indices = index.search(vec, k)
@@ -104,7 +110,12 @@ def retrieve(query, model, index, idx_map, k, threshold):
         if idx < 0: continue
         sim = 1.0 - (float(dist) / 2.0)
         if sim < threshold: continue
-        results.append(idx_map.get(int(idx), ("", "")))
+        
+        drug, sec = idx_map.get(int(idx), ("", ""))
+        if is_toc_chunk(drug, sec):
+            continue
+            
+        results.append((drug, sec))
         
     return results
 
@@ -130,17 +141,15 @@ def p95(vals):
     s = sorted(vals)
     return s[max(0, int(round(0.95 * (len(s) - 1))))]
 
-# ── Evaluación ────────────────────────────────────────────────────────────────
+# ── Runner de Evaluación ──────────────────────────────────────────────────────
 def eval_subset(subset, model, index, idx_map, k, threshold, collect_errors=False):
     hits, recs, precs, mrrs, lats = [], [], [], [], []
-    failed_logs = []
-    detailed_logs = [] # NUEVO: Guardará el detalle pregunta por pregunta
+    failed_logs, detailed_logs = [], []
     
     for q in subset:
         exp = expected_keys(q.get("expected_support", []))
         
         t0  = time.perf_counter()
-        # Usamos la traducción al inglés que generamos en el main()
         query_to_search = q.get("question_english", q["question"])
         retrieved_tuples = retrieve(query_to_search, model, index, idx_map, k, threshold)
         lat = (time.perf_counter() - t0) * 1000
@@ -156,7 +165,6 @@ def eval_subset(subset, model, index, idx_map, k, threshold, collect_errors=Fals
         precs.append(prec)
         mrrs.append(mrr)
         
-        # NUEVO: Guardamos toda la información de esta pregunta para el CSV detallado
         detailed_logs.append({
             "id": q.get("id", "unknown"),
             "language": q.get("language", "en"),
@@ -192,7 +200,7 @@ def eval_subset(subset, model, index, idx_map, k, threshold, collect_errors=Fals
     }
     return metrics, failed_logs, detailed_logs
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Ejecución Principal ───────────────────────────────────────────────────────
 def main():
     import argparse
     parser = argparse.ArgumentParser()
@@ -202,7 +210,7 @@ def main():
     parser.add_argument("--output-dir",default="evaluation/grid_results")
     args = parser.parse_args()
 
-    print("Cargando y procesando preguntas de evaluación...")
+    print("Loading and processing evaluation questions...")
     questions = []
     with open(args.eval_set, encoding="utf-8") as f:
         for line in f:
@@ -212,12 +220,12 @@ def main():
     answerable = [q for q in questions if not q.get("expected_refusal")]
     
     print(f"Loaded {len(answerable)} answerable eval questions.")
-    print("Traduciendo preguntas extranjeras (simulando el comportamiento de system.py)...")
+    print("Translating foreign questions (simulating system.py behavior)...")
     
     for i, q in enumerate(answerable):
         lang = q.get("language", "en")
         if lang != "en":
-            print(f"  Traduciendo pregunta {i+1} de {lang} a inglés...")
+            print(f"  Translating question {i+1} from {lang} to English...")
             q["question_english"] = translate_to_english(q["question"])
         else:
             q["question_english"] = q["question"]
@@ -233,11 +241,8 @@ def main():
 
     idx_map = build_idx_map(args.meta)
 
-    # CREACIÓN DE DIRECTORIOS
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    
-    # NUEVO: Subcarpeta para las combinaciones individuales
     combinations_dir = out / "combinations"
     combinations_dir.mkdir(parents=True, exist_ok=True)
 
@@ -252,7 +257,6 @@ def main():
             n_iter += 1
             print(f"[{n_iter}/{total_iters}] Evaluating K={k}, Threshold={t:.2f}...")
             
-            # Evaluamos TODO y extraemos los detalles (la variable `details` es nueva)
             r_all, errors, details = eval_subset(answerable, model, index, idx_map, k, t, collect_errors=True)
             r_english, _, _  = eval_subset(english_q,  model, index, idx_map, k, t)
             r_foreign, _, _  = eval_subset(foreign_q,  model, index, idx_map, k, t)
@@ -262,12 +266,8 @@ def main():
             
             results.append({"k": k, "t": t, "all": r_all, "english": r_english, "foreign": r_foreign})
 
-            # -------------------------------------------------------------
-            # NUEVO: GUARDAR DETALLES POR CADA COMBINACIÓN
-            # -------------------------------------------------------------
             file_prefix = f"k{k}_t{t:.2f}"
             
-            # 1. Guardar CSV Completo (Pregunta por pregunta)
             detail_csv_path = combinations_dir / f"{file_prefix}_details.csv"
             if details:
                 keys = details[0].keys()
@@ -276,7 +276,6 @@ def main():
                     dict_writer.writeheader()
                     dict_writer.writerows(details)
             
-            # 2. Guardar JSON de Summary de esta configuración
             summary_data = {
                 "parameters": {"k": k, "threshold": t},
                 "metrics_total": r_all,
@@ -286,19 +285,17 @@ def main():
             with open(combinations_dir / f"{file_prefix}_summary.json", "w", encoding="utf-8") as f:
                 json.dump(summary_data, f, indent=4)
 
-    # Guardar Reporte de Errores General
     error_path = out / "error_analysis_report.txt"
     with open(error_path, "w", encoding="utf-8") as f:
-        f.write("=== REPORTE DE ANÁLISIS DE ERRORES (K=10, Th=0.20) ===\n")
+        f.write("=== ERROR ANALYSIS REPORT (K=10, Th=0.20) ===\n")
         for err in best_errors:
-            f.write(f"❓ PREGUNTA (Traducción): {err['question']}\n")
-            f.write(f"🎯 ESPERABA ENCONTRAR: {err['expected']}\n")
-            f.write(f"❌ FAISS RECUPERÓ:\n")
+            f.write(f"❓ QUESTION: {err['question']}\n")
+            f.write(f"🎯 EXPECTED: {err['expected']}\n")
+            f.write(f"❌ RETRIEVED:\n")
             for rank, doc in enumerate(err['retrieved'], 1):
                 f.write(f"   [{rank}] {doc}\n")
             f.write("-" * 60 + "\n")
 
-    # Exportar CSV de Grid General
     csv_path = out / "grid_retrieval_comparison.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
@@ -314,18 +311,14 @@ def main():
                         fr["hit"], fr["rec"], fr["mrr"]])
 
     print("\n" + "="*50)
-    print("✅ EVALUACIÓN COMPLETADA CON ÉXITO")
+    print("✅ EVALUATION SUCCESSFULLY COMPLETED")
     print("="*50)
-    print(f"📁 Tabla General guardada en: {csv_path}")
-    print(f"📁 Reporte de Errores guardado en: {error_path}")
-    print(f"📁 Archivos detallados por combinación (CSV + JSON) guardados en: {combinations_dir}")
-
-    # Tabla en Consola
-    print(f"\n{'K':>4} | {'Thresh':>7} | {'Hit(TOTAL)':>10} | {'Hit(INGLÉS)':>12} | {'Hit(OTROS)':>11} | {'Lat(ms)':>9}")
-    print("-" * 70)
+    
+    print(f"\n{'K':>4} | {'Thresh':>7} | {'Hit(TOTAL)':>10} | {'Hit(ENG)':>12} | {'Hit(OTHER)':>11}")
+    print("-" * 65)
     for r in results:
         a, e, f = r["all"], r["english"], r["foreign"]
-        print(f"{r['k']:>4} | {r['t']:>7.2f} | {a['hit']:>10.4f} | {e['hit']:>12.4f} | {f['hit']:>11.4f} | {a['lat_avg']:>9.1f}")
+        print(f"{r['k']:>4} | {r['t']:>7.2f} | {a['hit']:>10.4f} | {e['hit']:>12.4f} | {f['hit']:>11.4f}")
 
 if __name__ == "__main__":
     main()

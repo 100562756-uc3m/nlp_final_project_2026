@@ -8,23 +8,23 @@
         "rec": 0.35,
         "prec": 0.2469,
         "mrr": 0.2979,
-        "lat_avg": 279.55,
-        "lat_p95": 1020.77
+        "lat_avg": 76.44,
+        "lat_p95": 112.83
     },
     "metrics_english": {
         "hit": 0.3846,
         "rec": 0.3846,
         "prec": 0.2933,
         "mrr": 0.3333,
-        "lat_avg": 71.57,
-        "lat_p95": 78.53
+        "lat_avg": 65.61,
+        "lat_p95": 70.74
     },
     "metrics_foreign": {
         "hit": 0.2857,
         "rec": 0.2857,
         "prec": 0.1607,
         "mrr": 0.2321,
-        "lat_avg": 71.11,
-        "lat_p95": 79.14
+        "lat_avg": 67.86,
+        "lat_p95": 74.92
     }
 }

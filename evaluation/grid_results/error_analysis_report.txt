@@ -1,0 +1,223 @@
+=== ERROR ANALYSIS REPORT (K=10, Th=0.20) ===
+❓ QUESTION: What is the dosage and administration for Acyclovir Tablets USP?
+🎯 EXPECTED: [('acyclovir', 'usage_clinical')]
+❌ RETRIEVED:
+   [1] ('acyclovir usp400 and 800', 'general_info')
+   [2] ('prescribing information', 'product_logistics')
+   [3] ('acyclovir 400 and 800', 'product_logistics')
+   [4] ('acyclovir usp200', 'general_info')
+   [5] ('acyclovir 400', 'general_info')
+   [6] ('acyclovir 400 and 800', 'safety_risk')
+   [7] ('acyclovir 400 and 800', 'safety_risk')
+   [8] ('acyclovir uspnivagen pharmaceuticals inc', 'general_info')
+   [9] ('acyclovir usp400 and 800', 'general_info')
+   [10] ('acyclovir usp400 and 800', 'general_info')
+------------------------------------------------------------
+❓ QUESTION: What is BusPIRone Hydrochloride Tablets indicated for?
+🎯 EXPECTED: [('buspirone hydrochloride', 'usage_clinical')]
+❌ RETRIEVED:
+   [1] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
+   [2] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
+   [3] ('buspirone hydrochloride usppatient instruction sheet included', 'product_logistics')
+   [4] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
+   [5] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
+   [6] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
+   [7] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
+   [8] ('buspirone hydrochloride rx onlypatient instruction sheet included', 'product_logistics')
+   [9] ('buspirone hydrochloride rx onlypatient instruction sheet included', 'product_logistics')
+   [10] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
+------------------------------------------------------------
+❓ QUESTION: What are the contraindications for BusPIRone Hydrochloride Tablets?
+🎯 EXPECTED: [('buspirone hydrochloride', 'safety_risk')]
+❌ RETRIEVED:
+   [1] ('buspirone hydrochloride rx onlypatient instruction sheet included', 'general_info')
+   [2] ('buspirone hydrochloride rx onlypatient instruction sheet included', 'general_info')
+   [3] ('buspirone hydrochloride patient instruction sheet included', 'adverse_interactions')
+   [4] ('buspirone hydrochloride patient instruction sheet included', 'general_info')
+   [5] ('buspirone hydrochloride 5 75 10 15 or 30', 'adverse_interactions')
+   [6] ('buspirone hydrochloride', 'adverse_interactions')
+   [7] ('buspirone hydrochloride 5 75 10 15 or 30', 'general_info')
+   [8] ('buspirone hydrochloride patient instruction sheet included', 'general_info')
+   [9] ('buspirone hydrochloride patient instruction sheet included', 'general_info')
+   [10] ('buspirone hydrochloride patient instruction sheet included', 'general_info')
+------------------------------------------------------------
+❓ QUESTION: What are the clinical pharmacology details for Acyclovir Tablets USP?
+🎯 EXPECTED: [('acyclovir', 'pharmacology')]
+❌ RETRIEVED:
+   [1] ('acyclovir usp400 and 800', 'general_info')
+   [2] ('acyclovir 400', 'general_info')
+   [3] ('acyclovir', 'general_info')
+   [4] ('acyclovir', 'general_info')
+   [5] ('acyclovir', 'general_info')
+   [6] ('acyclovir', 'general_info')
+   [7] ('acyclovir uspnivagen pharmaceuticals inc', 'general_info')
+   [8] ('acyclovir 400 and 800', 'general_info')
+   [9] ('acyclovir 400 and 800', 'general_info')
+   [10] ('acyclovir usp400 and 800', 'general_info')
+------------------------------------------------------------
+❓ QUESTION: What are the adverse reactions of Acyclovir Tablets USP?
+🎯 EXPECTED: [('acyclovir', 'adverse_interactions')]
+❌ RETRIEVED:
+   [1] ('acyclovir uspnivagen pharmaceuticals inc', 'general_info')
+   [2] ('acyclovir 400 and 800', 'general_info')
+   [3] ('acyclovir 400 and 800', 'general_info')
+   [4] ('acyclovir usp400 and 800', 'general_info')
+   [5] ('acyclovir usp400 and 800', 'general_info')
+   [6] ('acyclovir usp400 and 800', 'general_info')
+   [7] ('acyclovir usp400 and 800', 'general_info')
+   [8] ('acyclovir', 'general_info')
+   [9] ('acyclovir', 'general_info')
+   [10] ('acyclovir', 'general_info')
+------------------------------------------------------------
+❓ QUESTION: What are the precautions for Cephalexin for Oral Suspension USP?
+🎯 EXPECTED: [('cephalexin for', 'special_populations')]
+❌ RETRIEVED:
+   [1] ('cephalexin for', 'safety_risk')
+   [2] ('cephalexin for', 'safety_risk')
+   [3] ('cephalexin for usprx only', 'safety_risk')
+   [4] ('cephalexin for', 'safety_risk')
+   [5] ('cephalexin for usprx only', 'safety_risk')
+   [6] ('cephalexin for', 'safety_risk')
+   [7] ('cephalexin for', 'general_info')
+   [8] ('cephalexin for usprx only', 'general_info')
+   [9] ('cephalexin for', 'usage_clinical')
+   [10] ('cephalexin for', 'adverse_interactions')
+------------------------------------------------------------
+❓ QUESTION: ¿Para qué enfermedades víricas se puede usar el Aciclovir?
+🎯 EXPECTED: [('acyclovir', 'usage_clinical')]
+❌ RETRIEVED:
+   [1] ('acyclovir 5', 'general_info')
+   [2] ('acyclovir', 'general_info')
+   [3] ('acyclovir', 'general_info')
+   [4] ('acyclovir', 'general_info')
+   [5] ('acyclovir 400', 'general_info')
+   [6] ('acyclovir 400 and 800', 'general_info')
+   [7] ('acyclovir 400 and 800', 'general_info')
+   [8] ('acyclovir 400 and 800', 'general_info')
+   [9] ('acyclovir 400 and 800', 'general_info')
+   [10] ('acyclovir 200 nivagen pharmaceuticals inc', 'general_info')
+------------------------------------------------------------
+❓ QUESTION: Welche Nierenprobleme können bei der Einnahme von Acyclovir auftreten?
+🎯 EXPECTED: [('acyclovir', 'safety_risk')]
+❌ RETRIEVED:
+   [1] ('acyclovir', 'adverse_interactions')
+   [2] ('acyclovir', 'adverse_interactions')
+   [3] ('acyclovir', 'adverse_interactions')
+   [4] ('acyclovir', 'adverse_interactions')
+   [5] ('acyclovir', 'adverse_interactions')
+   [6] ('', 'adverse_interactions')
+   [7] ('acyclovir', 'general_info')
+   [8] ('acyclovir', 'general_info')
+   [9] ('acyclovir', 'general_info')
+   [10] ('acyclovir', 'general_info')
+------------------------------------------------------------
+❓ QUESTION: Can patients allergic to cephalosporins take Cephalexin?
+🎯 EXPECTED: [('cephalexin for', 'safety_risk')]
+❌ RETRIEVED:
+   [1] ('cephalexin to reduce the development of drugresistant bacteria and maintain the effectiveness of cephalexin and other antibacterial drugs cephalexin should be used only to treat or prevent infections that are proven or strongly suspected to be caused by bacteria', 'general_info')
+   [2] ('cephalexin to reduce the development of drugresistant bacteria and maintain the effectiveness of cephalexin and other antibacterial drugs cephalexin should be used only to treat or prevent infections that are proven or strongly suspected to be caused by bacteria', 'general_info')
+   [3] ('cephalexin', 'general_info')
+   [4] ('cephalexin', 'general_info')
+   [5] ('cephalexin', 'general_info')
+   [6] ('cephalexin', 'general_info')
+   [7] ('cephalexin', 'general_info')
+   [8] ('cephalexin', 'general_info')
+   [9] ('cephalexin', 'general_info')
+   [10] ('cephalexin', 'general_info')
+------------------------------------------------------------
+❓ QUESTION: बस्पिरोन हाइड्रोक्लोराइड टैबलेट किस मानसिक स्थिति के इलाज के लिए उपयोग की जाती है?
+🎯 EXPECTED: [('buspirone hydrochloride', 'usage_clinical')]
+❌ RETRIEVED:
+   [1] ('buspirone hydrochloride', 'product_logistics')
+   [2] ('buspirone hydrochloride', 'product_logistics')
+   [3] ('buspirone hydrochloride', 'product_logistics')
+   [4] ('buspirone hydrochloride', 'product_logistics')
+   [5] ('buspirone hydrochloride', 'product_logistics')
+   [6] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
+   [7] ('buspirone hydrochloride', 'product_logistics')
+   [8] ('buspirone hydrochloride', 'product_logistics')
+   [9] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
+   [10] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
+------------------------------------------------------------
+❓ QUESTION: Is BusPIRone safe for patients with liver problems?
+🎯 EXPECTED: [('buspirone hydrochloride', 'safety_risk')]
+❌ RETRIEVED:
+   [1] ('description', 'safety_risk')
+   [2] ('description', 'safety_risk')
+   [3] ('patient instruction sheet', 'general_info')
+   [4] ('description', 'general_info')
+   [5] ('buspirone hydrochloride usp0053005410035200rx only', 'general_info')
+   [6] ('buspirone hydrochloride usp0053005410035200rx only', 'general_info')
+   [7] ('buspirone hydrochloride usp0053005410035200rx only', 'general_info')
+   [8] ('buspirone hydrochloride', 'general_info')
+   [9] ('description', 'general_info')
+------------------------------------------------------------
+❓ QUESTION: Est-ce que la céphaleXine peut provoquer une diarrhée grave ?
+🎯 EXPECTED: [('cephalexin for', 'safety_risk')]
+❌ RETRIEVED:
+   [1] ('description', 'general_info')
+   [2] ('description', 'general_info')
+   [3] ('these highlights do not include all the information needed to use cephalexin safely and effectively see full prescribing information for cephalexin cephalexin for useinitial us approval 1971', 'general_info')
+   [4] ('these highlights do not include all the information needed to use cephalexin safely and effectively see full prescribing information for cephalexin cephalexin for useinitial us approval 1971', 'general_info')
+   [5] ('cephalexin', 'general_info')
+   [6] ('cephalexin', 'general_info')
+   [7] ('cephalexin', 'general_info')
+   [8] ('these highlights do not include all the information needed to use cephalexin safely and effectively see full prescribing information for cephalexin cephalexin for useinitial us approval 1971', 'general_info')
+   [9] ('these highlights do not include all the information needed to use cephalexin safely and effectively see full prescribing information for cephalexin cephalexin for use initial us approval 1971', 'general_info')
+   [10] ('these highlights do not include all the information needed to use cephalexin safely and effectively see full prescribing information for cephalexin cephalexin for use initial us approval 1971', 'general_info')
+------------------------------------------------------------
+❓ QUESTION: What happens if a patient taking Acyclovir becomes dehydrated?
+🎯 EXPECTED: [('acyclovir', 'safety_risk')]
+❌ RETRIEVED:
+   [1] ('acyclovir sodium', 'general_info')
+   [2] ('acyclovir', 'adverse_interactions')
+   [3] ('acyclovir', 'adverse_interactions')
+   [4] ('acyclovir', 'adverse_interactions')
+   [5] ('acyclovir', 'adverse_interactions')
+   [6] ('', 'adverse_interactions')
+   [7] ('acyclovir sodium', 'adverse_interactions')
+   [8] ('acyclovir', 'adverse_interactions')
+   [9] ('acyclovir', 'adverse_interactions')
+------------------------------------------------------------
+❓ QUESTION: O Aciclovir pode ser tomado durante a gravidez?
+🎯 EXPECTED: [('acyclovir', 'safety_risk')]
+❌ RETRIEVED:
+   [1] ('prescribing information acyclovir', 'special_populations')
+   [2] ('acyclovir', 'general_info')
+   [3] ('acyclovir and acyclovir usprx only', 'special_populations')
+   [4] ('acyclovir and acyclovir', 'special_populations')
+   [5] ('acyclovir', 'special_populations')
+   [6] ('acyclovir 400 and 800', 'special_populations')
+   [7] ('acyclovir 400 and 800', 'special_populations')
+   [8] ('acyclovir', 'special_populations')
+   [9] ('acyclovir', 'special_populations')
+   [10] ('acyclovir', 'special_populations')
+------------------------------------------------------------
+❓ QUESTION: ¿Qué pasa si se administra Cephalexin a alguien con hipersensibilidad a las cefalosporinas?
+🎯 EXPECTED: [('cephalexin for', 'safety_risk')]
+❌ RETRIEVED:
+   [1] ('cephalexin to reduce the development of drugresistant bacteria and maintain the effectiveness of cephalexin and other antibacterial drugs cephalexin should be used only to treat or prevent infections that are proven or strongly suspected to be caused by bacteria', 'general_info')
+   [2] ('cephalexin to reduce the development of drugresistant bacteria and maintain the effectiveness of cephalexin and other antibacterial drugs cephalexin should be used only to treat or prevent infections that are proven or strongly suspected to be caused by bacteria', 'general_info')
+   [3] ('cephalexin', 'general_info')
+   [4] ('cephalexin', 'general_info')
+   [5] ('cephalexin', 'general_info')
+   [6] ('cephalexin', 'general_info')
+   [7] ('cephalexin', 'general_info')
+   [8] ('cephalexin', 'general_info')
+   [9] ('cephalexin', 'general_info')
+   [10] ('cephalexin', 'general_info')
+------------------------------------------------------------
+❓ QUESTION: Acyclovir का उपयोग जननांग दाद के इलाज के लिए कैसे किया जाता है?
+🎯 EXPECTED: [('acyclovir', 'usage_clinical')]
+❌ RETRIEVED:
+   [1] ('acyclovir', 'general_info')
+   [2] ('acyclovir', 'general_info')
+   [3] ('acyclovir uspnivagen pharmaceuticals inc', 'general_info')
+   [4] ('acy 400mg', 'general_info')
+   [5] ('acyclovir 400', 'general_info')
+   [6] ('acyclovir', 'general_info')
+   [7] ('acyclovir usp200', 'general_info')
+   [8] ('acyclovircapsules uspacyclovirtablets usprx only', 'general_info')
+   [9] ('acyclovircapsules uspacyclovirtablets usp894089438947rx only', 'general_info')
+   [10] ('acyclovircapsules uspacyclovirtablets usp894089438947rx only', 'general_info')
+------------------------------------------------------------
