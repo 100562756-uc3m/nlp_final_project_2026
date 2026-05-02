@@ -17,7 +17,7 @@ from src.system import (
     assess_retrieval_quality 
 )
 
-st.set_page_config(page_title="UC3M NLP Project", layout="wide")
+st.set_page_config(page_title="UC3M NLP Project - DailyMed", layout="wide")
 
 # Directory setup
 INDEX_DIR = "data/vector_db/smart_index"
@@ -48,8 +48,33 @@ def set_next_query(query):
 with st.spinner("Loading clinical database... Please wait."):
     model, reranker, index, chunks = load_rag_system()
 
+# --- HEADER SECTION ---
 st.title("DailyMed RAG Chatbot")
-st.caption("Educational project. Informational only, not medical advice.")
+
+# Enhanced Description and Instructions
+with st.expander("About this Assistant & How to use", expanded=True):
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.markdown("""
+        **What is this?**  
+        This is an advanced Retrieval-Augmented Generation (RAG) system based on the **DailyMed** clinical database. 
+        It provides evidence-based information regarding drug indications, dosages, and safety risks.
+        
+        **Supported Languages:**  
+          English, Spanish (Español), French (Français), German (Deutsch), Italian (Italiano), Portuguese (Português), Hindi (हिन्दी), Thai (ไทย).
+        
+        **⚠️ Disclaimer:**  
+        *Educational project only. Information is provided for informational purposes and does not constitute medical advice, diagnosis, or treatment. Always seek the advice of a physician.*
+        """)
+    with col2:
+        st.markdown("**Example Questions:**")
+        # Buttons to trigger examples
+        if st.button("What is Ibuprofen used for?"):
+            st.session_state.next_query = "What is Ibuprofen used for?"
+        if st.button("Dosage for Naproxen?"):
+            st.session_state.next_query = "What is the recommended dosage for Naproxen?"
+        if st.button("Acyclovir safety warnings?"):
+            st.session_state.next_query = "What are the safety warnings for Acyclovir?"
 
 # --- INITIALIZE STATE ---
 if "messages" not in st.session_state:
