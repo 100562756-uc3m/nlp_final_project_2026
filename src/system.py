@@ -127,6 +127,8 @@ def retrieve_context(query, model, index, chunks, k=8, score_threshold=0.25):
         # Si la distancia es 0, la similitud es 1 (100%).
         # Si la distancia es grande (ej. 3), la similitud es baja (0.25 o 25%).
         similarity = 1.0 / (1.0 + float(dist))
+        #similarity coseno
+        similarity = 1.0 - (float(dist) / 2.0)
         
         # 2. Ahora SÍ filtramos por similitud: "Si es MENOR que el umbral, lo descarto"
         if similarity < score_threshold:
@@ -149,6 +151,23 @@ def retrieve_context(query, model, index, chunks, k=8, score_threshold=0.25):
             unique_texts.append(current_text)
             
     return results
+
+def assess_retrieval_quality(retrieved: list[dict], weak_threshold: float) -> str:
+    """
+    Devuelve 'none', 'weak', o 'strong' según los scores de los chunks recuperados.
+    - 'none':   no hay chunks
+    - 'weak':   hay chunks pero todos están por debajo de weak_threshold
+    - 'strong': al menos un chunk supera weak_threshold
+    """
+    if not retrieved:
+        return "none"
+    
+    best_score = max(item.get("score", 0.0) for item in retrieved)
+    
+    if best_score < weak_threshold:
+        return "weak"
+    return "strong"
+
 
 def format_context_for_prompt(retrieved_chunks: list[dict]) -> str:
     """Formats the metadata and text for the LLM input."""
@@ -186,6 +205,8 @@ def translate_response_to_target(text: str, target_lang: str) -> str:
     prompt = f"Translate the following medical information to {target_lang}. Maintain medical accuracy. Respond ONLY with the translation: '{text}'"
     return call_uc3m_api(prompt).strip()
 
+
+
 def get_bot_response(user_query: str, model, index, chunks, top_k=5, threshold=0.30):
     from src.prompts import get_main_rag_prompt
     
@@ -196,20 +217,29 @@ def get_bot_response(user_query: str, model, index, chunks, top_k=5, threshold=0
     # 2. Vector Retrieval
     retrieved_chunks = retrieve_context(search_query, model, index, chunks, k=top_k, score_threshold=threshold)
     
+    #without info only respond sorry...
     if not retrieved_chunks:
         error_msg = "I'm sorry, I don't have enough information in the document database to answer that."
-        return translate_response_to_target(error_msg, original_lang), []
+        return translate_response_to_target(error_msg, original_lang), [], "none"
+    # 3. Evaluar calidad ANTES de construir el prompt
+    quality = assess_retrieval_quality(retrieved_chunks, weak_threshold=threshold+0.15)  # ← NUEVO
 
-    # 3. LLM Generation
+    # 4. LLM Generation
     context_str = format_context_for_prompt(retrieved_chunks)
-    final_prompt = get_main_rag_prompt(context_str, search_query)
+    final_prompt = get_main_rag_prompt(context_str, search_query, retrieval_quality=quality)
     answer_en = call_uc3m_api(final_prompt)
 
     #Add that dont show sources if not sufficient data
-    if "I'm sorry, I don't have enough information in the document database to answer that." in answer_en or "don't have enough information" in answer_en:
+    #if "I'm sorry, I don't have enough information in the document database to answer that." in answer_en or "don't have enough information" in answer_en:
+    #    retrieved_chunks = []
+     #   quality = "none"
+    REFUSAL_EXACT = "don't have enough information in the document database to answer that."
+    if REFUSAL_EXACT in answer_en.lower():
         retrieved_chunks = []
+        quality = "none"
+
     
     # 4. Final Translation
     final_answer = translate_response_to_target(answer_en, original_lang)
     
-    return final_answer, retrieved_chunks
+    return final_answer, retrieved_chunks, quality

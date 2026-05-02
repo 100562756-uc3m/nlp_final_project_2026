@@ -10,7 +10,8 @@ from src.system import (
     load_faiss_bundle, 
     get_bot_response,           
     detect_language,             
-    translate_response_to_target 
+    translate_response_to_target,
+    assess_retrieval_quality 
 )
 
 st.set_page_config(page_title="UC3M NLP Project", layout="wide")
@@ -107,6 +108,13 @@ for i, msg in enumerate(st.session_state.messages):
         if msg["role"] == "assistant" and msg.get("elapsed"):
             st.caption(f"Response time: {msg['elapsed']:.2f} seconds")
 
+        # Badge de calidad del retrieval  ← NUEVO
+        if msg["role"] == "assistant" and msg.get("retrieval_quality"):
+            quality = msg["retrieval_quality"]
+            if quality == "weak":
+                st.warning("Low similarity sources", icon="⚠️")
+            
+
         # 2. Summary (if available)
         if msg.get("summary"):
             st.info(f"**Summary:** {msg['summary']}")
@@ -190,7 +198,7 @@ if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] 
         original_lang = detect_language(last_user_msg)
         
         # Get RAG answer
-        answer, retrieved = get_bot_response(
+        answer, retrieved, quality = get_bot_response(
             last_user_msg, model, index, chunks, top_k, score_threshold
         )
 
@@ -217,7 +225,8 @@ if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] 
             "sources": retrieved,
             "suggestion": suggestion,
             "summary": summary,
-            "elapsed": elapsed_time
+            "elapsed": elapsed_time,
+            "retrieval_quality": quality
         }
         st.session_state.messages.append(assistant_payload)
         st.rerun()
