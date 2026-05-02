@@ -4,7 +4,7 @@ import altair as alt
 
 st.set_page_config(page_title="RAG Evaluation Dashboard", layout="wide")
 
-st.title("📊 RAG Evaluation Comparison Dashboard")
+st.title("RAG Evaluation Comparison Dashboard")
 st.caption("DailyMed Information Retrieval System - UC3M NLP Project 2026")
 
 @st.cache_data
@@ -14,7 +14,7 @@ def load_data():
 df = load_data()
 
 # Sidebar filters
-st.sidebar.header("Filters 🔍")
+st.sidebar.header("Filters")
 k_vals = st.sidebar.multiselect(
     "Select top-k values:", 
     [3, 5, 8, 10], 
@@ -32,7 +32,7 @@ selected_t = st.sidebar.select_slider(
 filtered_df = df[df['k'].isin(k_vals) & (df['threshold'] >= selected_t)]
 
 # Display main metrics table
-st.subheader("📋 General Comparison Table")
+st.subheader("General Comparison Table")
 st.dataframe(
     filtered_df[['k', 'threshold', 'hit@k', 'recall@k', 'precision@k', 'mrr', 'lat_avg_ms', 'lat_p95_ms']], 
     use_container_width=True

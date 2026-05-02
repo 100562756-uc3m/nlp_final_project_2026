@@ -8,6 +8,7 @@ import io
 from src.system import get_language_code
 
 from src.api import call_uc3m_api
+from src.constants import DEFAULT_K, DEFAULT_THRESHOLD
 from src.prompts import get_main_rag_prompt, get_summary_prompt, get_suggestion_prompt
 from src.system import (
     load_faiss_bundle, 
@@ -84,8 +85,8 @@ if "next_query" not in st.session_state:
 
 # --- SIDEBAR ---
 st.sidebar.header("Retrieval Settings")
-top_k = st.sidebar.slider("Top-K (Context Chunks)", min_value=1, max_value=10, value=5)
-score_threshold = st.sidebar.slider("Similarity threshold", min_value=0.0, max_value=1.0, value=0.25, step=0.01)
+top_k = st.sidebar.slider("Top-K (Context Chunks)", min_value=1, max_value=10, value=DEFAULT_K)
+score_threshold = st.sidebar.slider("Similarity threshold", min_value=0.0, max_value=1.0, value=DEFAULT_THRESHOLD, step=0.01)
 enable_summary = st.sidebar.toggle("Auto-summary", value=False)
 
 if st.sidebar.button("Clear Chat"):

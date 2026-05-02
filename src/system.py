@@ -8,6 +8,8 @@ import numpy as np
 from pathlib import Path
 from sentence_transformers import SentenceTransformer, CrossEncoder 
 from src.api import call_uc3m_api
+from src.constants import DEFAULT_K, DEFAULT_THRESHOLD
+
 
 # Models
 EMBED_MODEL_NAME = "sentence-transformers/all-mpnet-base-v2"
@@ -54,7 +56,7 @@ def load_faiss_bundle(index_dir: str | Path):
     return model, reranker, index, chunks
 
 # --- Retrieval & Reranking ---
-def retrieve_context(query, model, reranker, index, chunks, k=5, score_threshold=0.25):
+def retrieve_context(query, model, reranker, index, chunks, k=DEFAULT_K, score_threshold=DEFAULT_THRESHOLD):
     """
     Two-stage retrieval: 
     1. Bi-Encoder search (FAISS) for candidates.
@@ -199,7 +201,7 @@ def get_language_code(lang_name: str) -> str:
     return mapping.get(lang_name, "en")
 
 # --- Main Logic ---
-def get_bot_response(user_query: str, model, reranker, index, chunks, top_k=5, threshold=0.30):
+def get_bot_response(user_query: str, model, reranker, index, chunks, top_k=DEFAULT_K, threshold=DEFAULT_THRESHOLD):
     from src.prompts import get_main_rag_prompt
     
     # 1. Handle Language
@@ -215,7 +217,7 @@ def get_bot_response(user_query: str, model, reranker, index, chunks, top_k=5, t
         return translate_response_to_target(error_msg, original_lang), [], "none"
     
     # 3. Assess Quality
-    quality = assess_retrieval_quality(retrieved_chunks, weak_threshold=threshold+0.15)  # ← NUEVO
+    quality = assess_retrieval_quality(retrieved_chunks, weak_threshold=threshold+0.15)  
 
     # 4. Generate Answer
     context_str = format_context_for_prompt(retrieved_chunks)
@@ -232,4 +234,3 @@ def get_bot_response(user_query: str, model, reranker, index, chunks, top_k=5, t
     final_answer = translate_response_to_target(answer_en, original_lang)
     
     return final_answer, retrieved_chunks, quality
-
