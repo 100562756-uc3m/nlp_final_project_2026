@@ -1,210 +1,331 @@
-from __future__ import annotations
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-import argparse
-import csv
-import json
-import re
-import statistics
-import sys
-import time
+import json, re, sys, time, csv, difflib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.api import call_uc3m_api
-from src.prompts import get_main_rag_prompt
-from src.system import format_context_for_prompt, load_faiss_bundle, retrieve_context
+import faiss
+from sentence_transformers import SentenceTransformer
 
-DEFAULT_REFUSAL = "I'm sorry, I don't have enough information in the document database to answer that."
-REFUSAL_PATTERNS = [
-    "don't have enough information",
-    "do not have enough information",
-    "not enough information",
-    "insufficient information",
-]
+# Importamos tu traductor de sistema para que la evaluación sea justa
+from src.system import translate_to_english
 
+EMBED_MODEL = "sentence-transformers/all-mpnet-base-v2"
+K_VALUES    = [3, 5, 8, 10]
+T_VALUES    = [0.20, 0.3, 0.40, 0.6, 0.8]
 
-def load_eval_questions(path: str | Path) -> list[dict]:
-    items: list[dict] = []
-    with Path(path).open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                items.append(json.loads(line))
-    return items
+# ── Helpers de Normalización y Matching Difuso ────────────────────────────────
+def normalize(t: str) -> str:
+    if not t: return ""
+    t = re.sub(r"[^\w\s]", "", str(t).lower())
+    return re.sub(r"\s+", " ", t).strip()
 
+def expected_keys(expected_support: list) -> list:
+    return [
+        (normalize(s.get("drug_name", "")), normalize(s.get("section_title", "")))
+        for s in expected_support
+    ]
 
-def normalize(text: str) -> str:
-    return re.sub(r"\s+", " ", text.lower()).strip()
+def fuzzy_match(str1: str, str2: str, threshold=0.75) -> bool:
+    if not str1 or not str2: return False
+    return difflib.SequenceMatcher(None, str1, str2).ratio() >= threshold
 
-
-def response_is_refusal(answer: str) -> bool:
-    answer_norm = normalize(answer)
-    return any(pattern in answer_norm for pattern in REFUSAL_PATTERNS)
-
-
-def retrieval_hit(retrieved: list[dict], expected_sections: list[str]) -> bool:
-    if not expected_sections:
-        return False
-    normalized_expected = [normalize(x) for x in expected_sections]
-    for item in retrieved:
-        section = normalize(item.get("section_title", ""))
-        if section in normalized_expected:
-            return True
-    return False
-
-
-def citation_present(answer: str) -> bool:
-    return bool(re.search(r"\[?Source \d+\]?", answer))
-
-
-def p95(values: list[float]) -> float:
-    if not values:
-        return 0.0
-    values = sorted(values)
-    idx = max(0, min(len(values) - 1, int(round(0.95 * (len(values) - 1)))))
-    return values[idx]
-
-
-def evaluate(
-    eval_path: str,
-    index_path: str,
-    meta_path: str,
-    top_k: int,
-    score_threshold: float,
-    model_name: str,
-    output_dir: str,
-) -> None:
-    questions = load_eval_questions(eval_path)
-    embed_model, index, chunks = load_faiss_bundle(index_path, meta_path)
-
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    detailed_csv = output_dir / "evaluation_results.csv"
-    summary_json = output_dir / "evaluation_summary.json"
-
-    rows: list[dict] = []
-    total_latencies_ms: list[float] = []
-    retrieval_latencies_ms: list[float] = []
-
-    for item in questions:
-        qid = item["id"]
-        question = item["question"]
-        qtype = item["question_type"]
-        expected_sections = item.get("expected_sections", [])
-        expected_refusal = bool(item.get("expected_refusal", False))
-
-        t0 = time.perf_counter()
-        r0 = time.perf_counter()
-        retrieved = retrieve_context(
-            question,
-            model=embed_model,
-            index=index,
-            chunks=chunks,
-            k=top_k,
-            score_threshold=score_threshold,
-        )
-        retrieval_ms = (time.perf_counter() - r0) * 1000
-
-        if not retrieved:
-            answer = DEFAULT_REFUSAL
-        else:
-            context = format_context_for_prompt(retrieved)
-            prompt = get_main_rag_prompt(context, question)
-            answer = call_uc3m_api(prompt, model_name=model_name)
-
-        total_ms = (time.perf_counter() - t0) * 1000
-
-        retrieval_ok = retrieval_hit(retrieved, expected_sections) if not expected_refusal else None
-        refusal_ok = response_is_refusal(answer) if expected_refusal else None
-
-        row = {
-            "id": qid,
-            "question_type": qtype,
-            "language": item.get("language", ""),
-            "question": question,
-            "expected_refusal": expected_refusal,
-            "expected_sections": " | ".join(expected_sections),
-            "retrieved_section_titles": " | ".join(x.get("section_title", "") for x in retrieved),
-            "retrieved_drug_names": " | ".join(x.get("drug_name", "") for x in retrieved),
-            "retrieval_hit_at_k": retrieval_ok,
-            "refusal_correct": refusal_ok,
-            "citation_present": citation_present(answer),
-            "retrieval_latency_ms": round(retrieval_ms, 2),
-            "total_latency_ms": round(total_ms, 2),
-            "answer": answer,
-            "manual_answer_correct": "",
-            "manual_grounded": "",
-            "manual_citation_correct": "",
-        }
-        rows.append(row)
-        total_latencies_ms.append(total_ms)
-        retrieval_latencies_ms.append(retrieval_ms)
-
-    with detailed_csv.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rows)
-
-    answerable_rows = [r for r in rows if not r["expected_refusal"]]
-    unanswerable_rows = [r for r in rows if r["expected_refusal"]]
-
-    summary = {
-        "num_questions": len(rows),
-        "num_answerable": len(answerable_rows),
-        "num_unanswerable": len(unanswerable_rows),
-        "retrieval_hit_rate_at_k": round(
-            sum(bool(r["retrieval_hit_at_k"]) for r in answerable_rows) / max(1, len(answerable_rows)), 4
-        ),
-        "refusal_accuracy": round(
-            sum(bool(r["refusal_correct"]) for r in unanswerable_rows) / max(1, len(unanswerable_rows)), 4
-        ),
-        "citation_presence_rate_on_answerable": round(
-            sum(bool(r["citation_present"]) for r in answerable_rows) / max(1, len(answerable_rows)), 4
-        ),
-        "avg_total_latency_ms": round(sum(total_latencies_ms) / max(1, len(total_latencies_ms)), 2),
-        "median_total_latency_ms": round(statistics.median(total_latencies_ms) if total_latencies_ms else 0.0, 2),
-        "p95_total_latency_ms": round(p95(total_latencies_ms), 2),
-        "avg_retrieval_latency_ms": round(sum(retrieval_latencies_ms) / max(1, len(retrieval_latencies_ms)), 2),
-        "median_retrieval_latency_ms": round(statistics.median(retrieval_latencies_ms) if retrieval_latencies_ms else 0.0, 2),
-        "p95_retrieval_latency_ms": round(p95(retrieval_latencies_ms), 2),
-        "settings": {
-            "top_k": top_k,
-            "score_threshold": score_threshold,
-            "model_name": model_name,
-            "index_path": index_path,
-            "meta_path": meta_path,
-        },
-        "note": "Use the CSV manual_* columns for human grading of answer correctness, groundedness, and citation correctness.",
+def is_match(retrieved_tuple: tuple, expected_tuple: tuple) -> bool:
+    r_drug, r_sec = retrieved_tuple
+    e_drug, e_sec = expected_tuple
+    
+    # 1. Comprobamos la droga
+    drug_match = (e_drug in r_drug) or (r_drug in e_drug) or fuzzy_match(e_drug, r_drug, 0.65)
+    
+    # Quitamos los números fantasma de las secciones (ej. "4 contraindications" -> "contraindications")
+    clean_e_sec = re.sub(r'^\d+[\.\-]?\s*', '', e_sec)
+    
+    # 2. Diccionario traductor ACTUALIZADO
+    section_mapping = {
+        "indications and usage": "usage_clinical",
+        "dosage and administration": "usage_clinical",
+        "dosage forms and strengths": "usage_clinical",
+        "boxed warning": "safety_risk",
+        "warnings": "safety_risk",
+        "warnings and precautions": "safety_risk",
+        "precautions": "safety_risk",
+        "contraindications": "safety_risk",
+        "adverse reactions": "adverse_interactions",
+        "drug interactions": "adverse_interactions",
+        "overdosage": "adverse_interactions",
+        "how supplied": "product_logistics",
+        "description": "product_logistics",
+        "storage and handling": "product_logistics",
+        "clinical pharmacology": "pharmacology",
+        "pregnancy": "special_populations",
+        "pediatric use": "special_populations",
+        "use in specific populations": "special_populations"
     }
+    
+    mapped_e_sec = section_mapping.get(clean_e_sec, clean_e_sec)
+    
+    # 3. Comprobamos la sección
+    sec_match = (clean_e_sec in r_sec) or (r_sec in clean_e_sec) or (mapped_e_sec in r_sec) or fuzzy_match(mapped_e_sec, r_sec, 0.80)
+    
+    return drug_match and sec_match
 
-    with summary_json.open("w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2, ensure_ascii=False)
+# ── Carga ligera del JSONL ────────────────────────────────────────────────────
+def build_idx_map(meta_path: str) -> dict:
+    print(f"Reading metadata from {meta_path} (streaming, light)...")
+    idx_map = {}
+    with open(meta_path, "r", encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            line = line.strip()
+            if not line: continue
+            
+            chunk = json.loads(line)
+            meta = chunk.get("metadata", {})
+            raw_drug = meta.get("drug",  chunk.get("drug_name", ""))
+            raw_sec  = meta.get("group", chunk.get("section_title", ""))
+            
+            idx_map[i] = (normalize(raw_drug), normalize(raw_sec))
+            
+    print(f"  Done — {len(idx_map)} chunks indexed.")
+    return idx_map
 
-    print("Saved detailed results to:", detailed_csv)
-    print("Saved summary to:", summary_json)
-    print(json.dumps(summary, indent=2, ensure_ascii=False))
+# ── Función de Recuperación Ligera ────────────────────────────────────────────
+def retrieve(query, model, index, idx_map, k, threshold):
+    vec = model.encode([query], normalize_embeddings=True).astype("float32")
+    distances, indices = index.search(vec, k)
+    
+    results = []
+    for dist, idx in zip(distances[0], indices[0]):
+        if idx < 0: continue
+        sim = 1.0 - (float(dist) / 2.0)
+        if sim < threshold: continue
+        results.append(idx_map.get(int(idx), ("", "")))
+        
+    return results
 
+# ── Métricas ──────────────────────────────────────────────────────────────────
+def hit_at_k(retrieved_tuples, exp_list):      
+    return any(is_match(r, e) for r in retrieved_tuples for e in exp_list)
+def recall_at_k(retrieved_tuples, exp_list):   
+    if not exp_list: return 0.0
+    matches = sum(1 for e in exp_list if any(is_match(r, e) for r in retrieved_tuples))
+    return matches / len(exp_list)
+def precision_at_k(retrieved_tuples, exp_list, k): 
+    if not retrieved_tuples: return 0.0
+    top_k = retrieved_tuples[:k]
+    matches = sum(1 for r in top_k if any(is_match(r, e) for e in exp_list))
+    return matches / k
+def mrr_score(retrieved_tuples, exp_list):
+    for rank, r in enumerate(retrieved_tuples, 1):
+        if any(is_match(r, e) for e in exp_list): 
+            return 1.0 / rank
+    return 0.0
+def p95(vals):
+    if not vals: return 0.0
+    s = sorted(vals)
+    return s[max(0, int(round(0.95 * (len(s) - 1))))]
 
-if __name__ == "__main__":
+# ── Evaluación ────────────────────────────────────────────────────────────────
+def eval_subset(subset, model, index, idx_map, k, threshold, collect_errors=False):
+    hits, recs, precs, mrrs, lats = [], [], [], [], []
+    failed_logs = []
+    detailed_logs = [] # NUEVO: Guardará el detalle pregunta por pregunta
+    
+    for q in subset:
+        exp = expected_keys(q.get("expected_support", []))
+        
+        t0  = time.perf_counter()
+        # Usamos la traducción al inglés que generamos en el main()
+        query_to_search = q.get("question_english", q["question"])
+        retrieved_tuples = retrieve(query_to_search, model, index, idx_map, k, threshold)
+        lat = (time.perf_counter() - t0) * 1000
+        lats.append(lat)
+
+        is_hit = hit_at_k(retrieved_tuples, exp)
+        rec = recall_at_k(retrieved_tuples, exp)
+        prec = precision_at_k(retrieved_tuples, exp, k)
+        mrr = mrr_score(retrieved_tuples, exp)
+        
+        hits.append(is_hit)
+        recs.append(rec)
+        precs.append(prec)
+        mrrs.append(mrr)
+        
+        # NUEVO: Guardamos toda la información de esta pregunta para el CSV detallado
+        detailed_logs.append({
+            "id": q.get("id", "unknown"),
+            "language": q.get("language", "en"),
+            "original_question": q["question"],
+            "english_translation": query_to_search,
+            "expected_support": str(exp),
+            "retrieved_documents": str(retrieved_tuples),
+            "hit": int(is_hit),
+            "recall": round(rec, 4),
+            "precision": round(prec, 4),
+            "mrr": round(mrr, 4),
+            "latency_ms": round(lat, 2)
+        })
+        
+        if collect_errors and not is_hit:
+            failed_logs.append({
+                "question": q["question"],
+                "expected": exp,
+                "retrieved": retrieved_tuples
+            })
+        
+    n = len(subset)
+    if n == 0: 
+        return {"hit": 0.0, "rec": 0.0, "prec": 0.0, "mrr": 0.0, "lat_avg": 0.0, "lat_p95": 0.0}, [], []
+    
+    metrics = {
+        "hit":     round(sum(hits)/n, 4),
+        "rec":     round(sum(recs)/n, 4),
+        "prec":    round(sum(precs)/n, 4),
+        "mrr":     round(sum(mrrs)/n, 4),
+        "lat_avg": round(sum(lats)/n, 2),
+        "lat_p95": round(p95(lats), 2),
+    }
+    return metrics, failed_logs, detailed_logs
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+def main():
+    import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--eval-set", required=True)
-    parser.add_argument("--index", default="data/faiss/dailymed.index")
-    parser.add_argument("--meta", default="data/faiss/dailymed_chunks.jsonl")
-    parser.add_argument("--top-k", type=int, default=5)
-    parser.add_argument("--score-threshold", type=float, default=0.30)
-    parser.add_argument("--model-name", default="llama3.1:8b")
-    parser.add_argument("--output-dir", default="evaluation/results")
+    parser.add_argument("--eval-set",  default="evaluation/dailymed_eval_v2.jsonl")
+    parser.add_argument("--index",     default="data/vector_db/smart_index/index.faiss")
+    parser.add_argument("--meta",      default="data/vector_db/smart_index_inspect.jsonl")
+    parser.add_argument("--output-dir",default="evaluation/grid_results")
     args = parser.parse_args()
 
-    evaluate(
-        eval_path=args.eval_set,
-        index_path=args.index,
-        meta_path=args.meta,
-        top_k=args.top_k,
-        score_threshold=args.score_threshold,
-        model_name=args.model_name,
-        output_dir=args.output_dir,
-    )
+    print("Cargando y procesando preguntas de evaluación...")
+    questions = []
+    with open(args.eval_set, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line: questions.append(json.loads(line))
+            
+    answerable = [q for q in questions if not q.get("expected_refusal")]
+    
+    print(f"Loaded {len(answerable)} answerable eval questions.")
+    print("Traduciendo preguntas extranjeras (simulando el comportamiento de system.py)...")
+    
+    for i, q in enumerate(answerable):
+        lang = q.get("language", "en")
+        if lang != "en":
+            print(f"  Traduciendo pregunta {i+1} de {lang} a inglés...")
+            q["question_english"] = translate_to_english(q["question"])
+        else:
+            q["question_english"] = q["question"]
+
+    english_q = [q for q in answerable if q.get("language", "en") == "en"]
+    foreign_q = [q for q in answerable if q.get("language", "en") != "en"]
+
+    print("\nLoading embedding model...")
+    model = SentenceTransformer(EMBED_MODEL)
+
+    print(f"Loading FAISS index from {args.index}...")
+    index = faiss.read_index(args.index)
+
+    idx_map = build_idx_map(args.meta)
+
+    # CREACIÓN DE DIRECTORIOS
+    out = Path(args.output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    
+    # NUEVO: Subcarpeta para las combinaciones individuales
+    combinations_dir = out / "combinations"
+    combinations_dir.mkdir(parents=True, exist_ok=True)
+
+    results = []
+    total_iters = len(K_VALUES) * len(T_VALUES)
+    n_iter = 0
+    best_errors = []
+
+    print("\nStarting Evaluation Grid...")
+    for k in K_VALUES:
+        for t in T_VALUES:
+            n_iter += 1
+            print(f"[{n_iter}/{total_iters}] Evaluating K={k}, Threshold={t:.2f}...")
+            
+            # Evaluamos TODO y extraemos los detalles (la variable `details` es nueva)
+            r_all, errors, details = eval_subset(answerable, model, index, idx_map, k, t, collect_errors=True)
+            r_english, _, _  = eval_subset(english_q,  model, index, idx_map, k, t)
+            r_foreign, _, _  = eval_subset(foreign_q,  model, index, idx_map, k, t)
+            
+            if k == 10 and t == 0.20: 
+                best_errors = errors
+            
+            results.append({"k": k, "t": t, "all": r_all, "english": r_english, "foreign": r_foreign})
+
+            # -------------------------------------------------------------
+            # NUEVO: GUARDAR DETALLES POR CADA COMBINACIÓN
+            # -------------------------------------------------------------
+            file_prefix = f"k{k}_t{t:.2f}"
+            
+            # 1. Guardar CSV Completo (Pregunta por pregunta)
+            detail_csv_path = combinations_dir / f"{file_prefix}_details.csv"
+            if details:
+                keys = details[0].keys()
+                with open(detail_csv_path, "w", newline="", encoding="utf-8") as f:
+                    dict_writer = csv.DictWriter(f, fieldnames=keys)
+                    dict_writer.writeheader()
+                    dict_writer.writerows(details)
+            
+            # 2. Guardar JSON de Summary de esta configuración
+            summary_data = {
+                "parameters": {"k": k, "threshold": t},
+                "metrics_total": r_all,
+                "metrics_english": r_english,
+                "metrics_foreign": r_foreign
+            }
+            with open(combinations_dir / f"{file_prefix}_summary.json", "w", encoding="utf-8") as f:
+                json.dump(summary_data, f, indent=4)
+
+    # Guardar Reporte de Errores General
+    error_path = out / "error_analysis_report.txt"
+    with open(error_path, "w", encoding="utf-8") as f:
+        f.write("=== REPORTE DE ANÁLISIS DE ERRORES (K=10, Th=0.20) ===\n")
+        for err in best_errors:
+            f.write(f"❓ PREGUNTA (Traducción): {err['question']}\n")
+            f.write(f"🎯 ESPERABA ENCONTRAR: {err['expected']}\n")
+            f.write(f"❌ FAISS RECUPERÓ:\n")
+            for rank, doc in enumerate(err['retrieved'], 1):
+                f.write(f"   [{rank}] {doc}\n")
+            f.write("-" * 60 + "\n")
+
+    # Exportar CSV de Grid General
+    csv_path = out / "grid_retrieval_comparison.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["k","threshold",
+                    "hit@k","recall@k","precision@k","mrr","lat_avg_ms","lat_p95_ms",
+                    "hit@k_en","rec@k_en","mrr_en",
+                    "hit@k_others","rec@k_others","mrr_others"])
+        for r in results:
+            a, e, fr = r["all"], r["english"], r["foreign"]
+            w.writerow([r["k"], r["t"],
+                        a["hit"], a["rec"], a["prec"], a["mrr"], a["lat_avg"], a["lat_p95"],
+                        e["hit"], e["rec"], e["mrr"],
+                        fr["hit"], fr["rec"], fr["mrr"]])
+
+    print("\n" + "="*50)
+    print("✅ EVALUACIÓN COMPLETADA CON ÉXITO")
+    print("="*50)
+    print(f"📁 Tabla General guardada en: {csv_path}")
+    print(f"📁 Reporte de Errores guardado en: {error_path}")
+    print(f"📁 Archivos detallados por combinación (CSV + JSON) guardados en: {combinations_dir}")
+
+    # Tabla en Consola
+    print(f"\n{'K':>4} | {'Thresh':>7} | {'Hit(TOTAL)':>10} | {'Hit(INGLÉS)':>12} | {'Hit(OTROS)':>11} | {'Lat(ms)':>9}")
+    print("-" * 70)
+    for r in results:
+        a, e, f = r["all"], r["english"], r["foreign"]
+        print(f"{r['k']:>4} | {r['t']:>7.2f} | {a['hit']:>10.4f} | {e['hit']:>12.4f} | {f['hit']:>11.4f} | {a['lat_avg']:>9.1f}")
+
+if __name__ == "__main__":
+    main()

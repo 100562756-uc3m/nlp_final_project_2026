@@ -1,0 +1,30 @@
+{
+    "parameters": {
+        "k": 5,
+        "threshold": 0.8
+    },
+    "metrics_total": {
+        "hit": 0.325,
+        "rec": 0.325,
+        "prec": 0.25,
+        "mrr": 0.2938,
+        "lat_avg": 915.73,
+        "lat_p95": 4713.77
+    },
+    "metrics_english": {
+        "hit": 0.3462,
+        "rec": 0.3462,
+        "prec": 0.2846,
+        "mrr": 0.3269,
+        "lat_avg": 525.8,
+        "lat_p95": 2892.43
+    },
+    "metrics_foreign": {
+        "hit": 0.2857,
+        "rec": 0.2857,
+        "prec": 0.1857,
+        "mrr": 0.2321,
+        "lat_avg": 676.09,
+        "lat_p95": 1173.72
+    }
+}
