@@ -243,3 +243,17 @@ def get_bot_response(user_query: str, model, index, chunks, top_k=5, threshold=0
     final_answer = translate_response_to_target(answer_en, original_lang)
     
     return final_answer, retrieved_chunks, quality
+
+def get_language_code(lang_name: str) -> str:
+    """Maps language names from detect_language to gTTS ISO codes."""
+    mapping = {
+        "English": "en",
+        "Spanish": "es",
+        "French": "fr",
+        "German": "de",
+        "Italian": "it",
+        "Portuguese": "pt",
+        "Hindi": "hi",
+        "Thai": "th"
+    }
+    return mapping.get(lang_name, "en")
