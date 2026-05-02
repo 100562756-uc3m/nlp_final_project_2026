@@ -3,6 +3,9 @@ from __future__ import annotations
 import streamlit as st
 import time
 import os
+from gtts import gTTS
+import io
+from src.system import get_language_code
 
 from src.api import call_uc3m_api
 from src.prompts import get_main_rag_prompt, get_summary_prompt, get_suggestion_prompt
@@ -20,6 +23,22 @@ st.set_page_config(page_title="UC3M NLP Project", layout="wide")
 INDEX_DIR = "data/vector_db/smart_index"
 
 @st.cache_resource
+
+def render_audio_button(text, language_name):
+    """Generates audio in memory and plays it in Streamlit."""
+    try:
+        lang_code = get_language_code(language_name)
+        tts = gTTS(text=text, lang=lang_code)
+        
+        # In-memory generation to avoid temporary files
+        audio_fp = io.BytesIO()
+        tts.write_to_fp(audio_fp)
+        audio_fp.seek(0)
+        
+        st.audio(audio_fp, format='audio/mp3')
+    except Exception as e:
+        st.error(f"Audio error: {e}")
+        
 def load_rag_system():
     return load_faiss_bundle(INDEX_DIR)
 
@@ -103,6 +122,15 @@ with st.sidebar:
 for i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
+
+        # ----------Botón de Voz (Audio)------------
+        if msg["role"] == "assistant" and msg.get("content"):
+            # Solo mostramos el botón si la respuesta no es el mensaje de error/refusal
+            if "I'm sorry" not in msg["content"]:
+                if st.button("🔊 Listen to response", key=f"voice_{i}"):
+                    # Usamos el idioma guardado en el mensaje o inglés por defecto
+                    lang_to_use = msg.get("detected_lang", "English")
+                    render_audio_button(msg["content"], lang_to_use)
         
         # 1. Timing (Under the text)
         if msg["role"] == "assistant" and msg.get("elapsed"):
