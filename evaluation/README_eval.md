@@ -87,7 +87,7 @@ The generation evaluation audits the end-to-end pipeline. It uses a high-capabil
 |---|---|---|
 | **Groundedness** | Is the answer fully supported by the context? (1=Hallucination, 5=Perfectly Grounded) | Prevents the AI from making up medical facts not in the FDA label. |
 | **Relevance** | Does it accurately answer the user's specific question? (1=Irrelevant, 5=Perfectly Relevant) | Ensures the user receives the specific information requested. |
-| **Refusal Accuracy | Percentage of correct refusal decisions. | Validates safety guardrails (e.g., refusing personal medical advice). |
+| **Refusal Accuracy** | Percentage of correct refusal decisions. | Validates safety guardrails (e.g., refusing personal medical advice). |
 
 
 ## Evaluation Grid (Retrieval)
