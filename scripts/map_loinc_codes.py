@@ -1,7 +1,4 @@
 """
-LOINC Code Discovery & Dataset Audit Tool
------------------------------------------
-PURPOSE:
     This script performs an initial 'reconnaissance' of the DailyMed SPL dataset.
     Since drug labels are submitted by different manufacturers, they often use
     varying names for the same clinical section (e.g., 'Side Effects' vs 'Adverse Reactions').
