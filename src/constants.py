@@ -1,6 +1,4 @@
 """
-src/constants.py
-----------------
 Central configuration file for the DailyMed NLP pipeline.
 Standardizes LOINC codes, groups them into semantic Super-Groups, 
 and defines token-based chunking constraints.
