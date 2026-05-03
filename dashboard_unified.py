@@ -263,21 +263,6 @@ elif page == "Retrieval":
     c4.markdown(metric_card("MRR",          f"{best['mrr']:.2%}"), unsafe_allow_html=True)
     c5.markdown(metric_card("Avg latency",  f"{best['lat_avg_ms']:.0f} ms"), unsafe_allow_html=True)
 
-    # Summary table
-    st.markdown('<div class="section-header">Full grid comparison</div>', unsafe_allow_html=True)
-    display = filt[["k", "threshold", "hit@k", "recall@k", "precision@k", "mrr", "lat_avg_ms", "lat_p95_ms"]].copy()
-    st.dataframe(
-        display.style.highlight_max(
-            subset=["hit@k", "recall@k", "mrr"],
-            color="#1b3a2e"
-        ).format({
-            "hit@k": "{:.4f}", "recall@k": "{:.4f}",
-            "precision@k": "{:.4f}", "mrr": "{:.4f}",
-            "lat_avg_ms": "{:.1f}", "lat_p95_ms": "{:.1f}"
-        }),
-        use_container_width=True, hide_index=True
-    )
-
     st.markdown('<div class="section-header">Metric charts</div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
 
@@ -313,13 +298,31 @@ elif page == "Retrieval":
     lang_melt["Language"] = lang_melt["Language"].map({"hit@k_en": "English", "hit@k_others": "Foreign"})
     lang_melt["config"] = "k=" + lang_melt["k"].astype(str) + " t=" + lang_melt["threshold"].astype(str)
 
-    lang_chart = alt.Chart(lang_melt).mark_bar().encode(
+    lang_chart = alt.Chart(lang_melt).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
         x=alt.X("config:N", title="Configuration", sort=None),
         y=alt.Y("Hit@K:Q", scale=alt.Scale(domain=[0, 1])),
         color=alt.Color("Language:N", scale=alt.Scale(range=["#818cf8", "#fb923c"])),
+        xOffset="Language:N", # <--- ESTO SEPARA LAS BARRAS LADO A LADO
         tooltip=["config", "Language", "Hit@K"]
     ).properties(title="Hit@K: English vs foreign queries", height=280)
+    
     st.altair_chart(dark_chart(lang_chart), use_container_width=True)
+    
+# Summary table
+    st.markdown('<div class="section-header">Full grid comparison</div>', unsafe_allow_html=True)
+    display = filt[["k", "threshold", "hit@k", "recall@k", "precision@k", "mrr", "lat_avg_ms", "lat_p95_ms"]].copy()
+    st.dataframe(
+        display.style.highlight_max(
+            subset=["hit@k", "recall@k", "mrr"],
+            color="#1b3a2e"
+        ).format({
+            "hit@k": "{:.4f}", "recall@k": "{:.4f}",
+            "precision@k": "{:.4f}", "mrr": "{:.4f}",
+            "lat_avg_ms": "{:.1f}", "lat_p95_ms": "{:.1f}"
+        }),
+        use_container_width=True, hide_index=True
+    )
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -345,54 +348,61 @@ elif page == "Generation":
     c3.markdown(metric_card("Refusal accuracy", f"{refusal_acc:.2%}",                         "safety"), unsafe_allow_html=True)
     c4.markdown(metric_card("Avg latency",      f"{df['latency'].mean():.1f}s",               "full pipeline"), unsafe_allow_html=True)
 
+    # --- VISUALIZATIONS ---
     col1, col2 = st.columns(2)
 
     with col1:
-        # ── Refusal accuracy donut ─────────────────────────────────────────
-        st.markdown('<div class="section-header">Refusal accuracy (safety)</div>', unsafe_allow_html=True)
-        ref_counts = df["refusal_correct"].value_counts().reset_index()
-        ref_counts.columns = ["Status", "Count"]
-        ref_counts["Status"] = ref_counts["Status"].map({True: "Correct refusal", False: "Wrong response"})
-        pie = alt.Chart(ref_counts).mark_arc(innerRadius=55, outerRadius=100).encode(
-            theta=alt.Theta("Count:Q"),
-            color=alt.Color("Status:N", scale=alt.Scale(
-                domain=["Correct refusal", "Wrong response"],
-                range=["#34d399", "#f87171"]
-            )),
-            tooltip=["Status", "Count"]
+        st.markdown('<div class="section-header">Safety: Refusal Accuracy</div>', unsafe_allow_html=True)
+        # Prepare data for pie chart
+        refusal_counts = df['refusal_correct'].value_counts().reset_index()
+        refusal_counts.columns = ['Status', 'Count']
+        refusal_counts['Status'] = refusal_counts['Status'].map({True: 'Correct', False: 'Incorrect'})
+        
+        pie = alt.Chart(refusal_counts).mark_arc(innerRadius=50).encode(
+            theta=alt.Theta(field="Count", type="quantitative"),
+            color=alt.Color(field="Status", type="nominal", 
+                            scale=alt.Scale(domain=['Correct', 'Incorrect'], 
+                                           range=['#34d399', '#f87171'])),
+            tooltip=['Status', 'Count']
         ).properties(height=280)
         st.altair_chart(dark_chart(pie), use_container_width=True)
+        st.caption("Measures if the bot correctly identified unanswerable/dangerous queries.")
 
     with col2:
-        # ── Score distribution ─────────────────────────────────────────────
-        st.markdown('<div class="section-header">Score distribution</div>', unsafe_allow_html=True)
-        dist = answerable.melt(
-            id_vars=["id"], value_vars=["groundedness", "relevance"],
-            var_name="Metric", value_name="Score"
-        )
-        hist = alt.Chart(dist).mark_bar(opacity=0.85, cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
-            x=alt.X("Score:O", title="Score (1–5)"),
-            y=alt.Y("count():Q", title="Count", stack=None),
-            color=alt.Color("Metric:N", scale=alt.Scale(range=["#818cf8", "#34d399"])),
-            tooltip=["Metric", "Score", "count()"]
+        st.markdown('<div class="section-header">Quality Distribution</div>', unsafe_allow_html=True)
+        
+        dist_df = df.melt(id_vars=['id'], value_vars=['groundedness', 'relevance'], 
+                          var_name='Metric', value_name='Score')
+        
+        # Gráfico de barras agrupadas (lado a lado) usando xOffset
+        hist = alt.Chart(dist_df).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+            x=alt.X('Score:O', title='Score (1-5)'),
+            y=alt.Y('count():Q', title='Number of Samples'), # Quitamos stack=None
+            color=alt.Color('Metric:N', scale=alt.Scale(range=['#818cf8', '#34d399'])),
+            xOffset='Metric:N', # <--- ESTO PONE LAS BARRAS LADO A LADO
+            tooltip=['Metric', 'Score', 'count()']
         ).properties(height=280)
+        
         st.altair_chart(dark_chart(hist), use_container_width=True)
+        st.caption("Distribution of Groundedness vs Relevance scores.")
 
-    # Language analysis
+    # ── 3. Quality by language ─────────────────────────────────────────────
     if "language" in df.columns:
         st.markdown('<div class="section-header">Quality by language</div>', unsafe_allow_html=True)
         lang_grp = answerable.groupby("language")[["groundedness", "relevance"]].mean().reset_index()
         lang_melt = lang_grp.melt(id_vars="language", var_name="Metric", value_name="Score")
-        lang_chart = alt.Chart(lang_melt).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+        
+        lang_chart = alt.Chart(lang_melt).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
             x=alt.X("language:N", title="Language"),
             y=alt.Y("Score:Q", scale=alt.Scale(domain=[0, 5])),
             color=alt.Color("Metric:N", scale=alt.Scale(range=["#818cf8", "#34d399"])),
             xOffset="Metric:N",
             tooltip=["language", "Metric", alt.Tooltip("Score:Q", format=".2f")]
-        ).properties(title="Groundedness & relevance by language", height=280)
+        ).properties(height=180)
+        
         st.altair_chart(dark_chart(lang_chart), use_container_width=True)
 
-    # Full results table
+    # ── 4. Per-question results table ───────────────────────────────────────
     st.markdown('<div class="section-header">Per-question results</div>', unsafe_allow_html=True)
     st.dataframe(
         df[["id", "question", "language", "expected_refusal",
