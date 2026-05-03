@@ -15,7 +15,7 @@ This application implements a high-resolution Retrieval-Augmented Generation (RA
 
 1. **Clone the repository**:
    ```bash
-   git clone [https://github.com/your-username/nlp_final_project_2026.git](https://github.com/your-username/nlp_final_project_2026.git)
+   git clone [https://github.com/100562756-uc3m/nlp_final_project_2026](https://github.com/100562756-uc3m/nlp_final_project_2026)
    cd nlp_final_project_2026
    ```
 
