@@ -1,16 +1,31 @@
-# streamlit run dashboard_unified.py
+"""
+dashboard_unified.py
+--------------------
+A comprehensive Streamlit dashboard for evaluating the DailyMed RAG system.
+This script merges:
+1. Retrieval Metrics (Grid Search: top-k vs similarity threshold).
+2. Generation Metrics (Faithfulness and Relevance graded by LLM-as-a-Judge).
+3. Safety Audit (Refusal Accuracy).
+4. Error Analysis (Deep dive into hallucinations and retrieval misses).
+--------------------------------------------------------------------------------
+streamlit run dashboard_unified.py
+--------------------------------------------------------------------------------
+"""
+
 import streamlit as st
 import pandas as pd
 import altair as alt
 import numpy as np
 
+# ── PAGE CONFIGURATION ────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="DailyMed RAG — Evaluation Dashboard",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
+# ── THEME & STYLING ───────────────────────────────────────────────────────────
+# Custom CSS for a professional dark medical-tech interface
 st.markdown("""
 <style>
     [data-testid="stAppViewContainer"] { background-color: #0f1117; }
@@ -38,7 +53,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ── Data loaders ──────────────────────────────────────────────────────────────
+# ── DATA LOADERS ──────────────────────────────────────────────────────────────
+# Cached loaders to ensure smooth interaction when switching tabs
 @st.cache_data
 def load_retrieval():
     return pd.read_csv("evaluation/grid_results/grid_retrieval_comparison.csv")
@@ -48,7 +64,7 @@ def load_generation():
     return pd.read_csv("evaluation/generation_results.csv")
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# ── SIDEBAR NAVIGATION & FILTERS ──────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## RAG Evaluation")
     st.markdown("DailyMed · UC3M NLP 2026")
@@ -61,6 +77,8 @@ with st.sidebar:
     )
 
     st.divider()
+
+    # Retrieval configuration filters used in charts across pages
     st.markdown("**Retrieval filters**")
     k_filter = st.multiselect("top-k", [3, 5, 8, 10], default=[3, 5, 8, 10])
     t_min = st.select_slider(
@@ -71,6 +89,7 @@ with st.sidebar:
 
     st.divider()
 
+    # Dynamic download buttons for reporting
     try:
         ret_df = load_retrieval()
         st.download_button(
@@ -91,7 +110,7 @@ with st.sidebar:
         pass
 
 
-# ── Chart theme ───────────────────────────────────────────────────────────────
+# ── CHART THEME ───────────────────────────────────────────────────────────────
 DARK_THEME = {
     "config": {
         "background": "#1e2130",
@@ -116,8 +135,9 @@ def dark_chart(chart):
     return chart.configure(**DARK_THEME["config"])
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── HELPERS ───────────────────────────────────────────────────────────────────
 def metric_card(label, value, sub=""):
+    """HTML template for the stylized metric cards."""
     return f"""
     <div class="metric-card">
         <div class="metric-label">{label}</div>
@@ -143,6 +163,7 @@ def best_config(df: pd.DataFrame) -> pd.Series:
     else:
         df["lat_norm"] = 1.0
 
+    # Weights reflect clinical priorities: Recall (Finding the info) is most important
     df["composite"] = (
         0.35 * df["recall@k"] +
         0.30 * df["mrr"] +
@@ -159,6 +180,7 @@ if page == "Overview":
     st.title("RAG Evaluation Dashboard")
     st.markdown('<p class="tab-desc">DailyMed Information Retrieval System — UC3M NLP Project 2026</p>', unsafe_allow_html=True)
 
+    # Validate data presence
     ret_ok = gen_ok = False
     try:
         ret_df = load_retrieval()
@@ -194,6 +216,7 @@ if page == "Overview":
         c3.markdown(metric_card("Refusal accuracy", f"{refusal_acc:.2%}",                             "unsafe Qs refused"), unsafe_allow_html=True)
         c4.markdown(metric_card("Avg latency",      f"{gen_df['latency'].mean():.1f}s",               "full pipeline"), unsafe_allow_html=True)
 
+    # Summary Charts
     if ret_ok and gen_ok:
         st.markdown('<div class="section-header">Pipeline summary</div>', unsafe_allow_html=True)
 
@@ -245,6 +268,7 @@ elif page == "Retrieval":
     st.title("Retrieval Evaluation")
     st.markdown('<p class="tab-desc">Hit@K · Recall@K · Precision@K · MRR — grid search across top-k and similarity threshold</p>', unsafe_allow_html=True)
 
+    # Filters and data processing
     try:
         df = load_retrieval()
     except Exception:
@@ -308,7 +332,7 @@ elif page == "Retrieval":
     
     st.altair_chart(dark_chart(lang_chart), use_container_width=True)
     
-# Summary table
+    # Summary table
     st.markdown('<div class="section-header">Full grid comparison</div>', unsafe_allow_html=True)
     display = filt[["k", "threshold", "hit@k", "recall@k", "precision@k", "mrr", "lat_avg_ms", "lat_p95_ms"]].copy()
     st.dataframe(
@@ -322,7 +346,6 @@ elif page == "Retrieval":
         }),
         use_container_width=True, hide_index=True
     )
-
 
 
 # ══════════════════════════════════════════════════════════════════════════════
