@@ -69,33 +69,19 @@
    [9] ('acyclovir', 'general_info')
    [10] ('acyclovir', 'general_info')
 ------------------------------------------------------------
-❓ QUESTION: What are the precautions for Cephalexin for Oral Suspension USP?
-🎯 EXPECTED: [('cephalexin for', 'special_populations')]
-❌ RETRIEVED:
-   [1] ('cephalexin for', 'safety_risk')
-   [2] ('cephalexin for', 'safety_risk')
-   [3] ('cephalexin for usprx only', 'safety_risk')
-   [4] ('cephalexin for', 'safety_risk')
-   [5] ('cephalexin for usprx only', 'safety_risk')
-   [6] ('cephalexin for', 'safety_risk')
-   [7] ('cephalexin for', 'general_info')
-   [8] ('cephalexin for usprx only', 'general_info')
-   [9] ('cephalexin for', 'usage_clinical')
-   [10] ('cephalexin for', 'adverse_interactions')
-------------------------------------------------------------
 ❓ QUESTION: ¿Para qué enfermedades víricas se puede usar el Aciclovir?
 🎯 EXPECTED: [('acyclovir', 'usage_clinical')]
 ❌ RETRIEVED:
    [1] ('spl unclassified section', 'usage_clinical')
    [2] ('acyclovir', 'general_info')
-   [3] ('acyclovir 5', 'general_info')
-   [4] ('acyclovir', 'general_info')
+   [3] ('acyclovir', 'general_info')
+   [4] ('acyclovir 5', 'general_info')
    [5] ('acyclovir', 'general_info')
-   [6] ('acyclovir 400 and 800', 'general_info')
-   [7] ('acyclovir', 'adverse_interactions')
-   [8] ('acyclovir 400 and 800', 'general_info')
-   [9] ('acyclovir usp400 and 800', 'general_info')
-   [10] ('acyclovir 400 and 800', 'general_info')
+   [6] ('acyclovir', 'adverse_interactions')
+   [7] ('acyclovir 400 and 800', 'general_info')
+   [8] ('description', 'pharmacology')
+   [9] ('acyclovir', 'general_info')
+   [10] ('acyclovir', 'general_info')
 ------------------------------------------------------------
 ❓ QUESTION: Quelle est la fréquence de prise de l'aciclovir pour le zona ?
 🎯 EXPECTED: [('acyclovir', 'usage_clinical')]
@@ -112,7 +98,7 @@
    [10] ('acyclovir 400 and 800', 'general_info')
 ------------------------------------------------------------
 ❓ QUESTION: Welche Nierenprobleme können bei der Einnahme von Acyclovir auftreten?
-🎯 EXPECTED: [('acyclovir', 'safety_risk')]
+🎯 EXPECTED: [('acyclovir', 'special_populations')]
 ❌ RETRIEVED:
    [1] ('acyclovir', 'adverse_interactions')
    [2] ('acyclovir', 'adverse_interactions')
@@ -139,8 +125,22 @@
    [9] ('cephalexin', 'general_info')
    [10] ('cephalexin', 'general_info')
 ------------------------------------------------------------
+❓ QUESTION: बस्पिरोन हाइड्रोक्लोराइड टैबलेट किस मानसिक स्थिति के इलाज के लिए उपयोग की जाती है?
+🎯 EXPECTED: [('buspirone hydrochloride', 'usage_clinical')]
+❌ RETRIEVED:
+   [1] ('spl unclassified section', 'usage_clinical')
+   [2] ('spl unclassified section', 'usage_clinical')
+   [3] ('bisoprolol fumarate and hydrochlorothiazide', 'product_logistics')
+   [4] ('bisoprolol fumarate and hydrochlorothiazide revised july 2003', 'product_logistics')
+   [5] ('bisoprolol fumarate and hydrochlorothiazide', 'product_logistics')
+   [6] ('bisoprolol fumarate and hydrochlorothiazide 25 mg625 5 mg625 and 10 mg625', 'product_logistics')
+   [7] ('bisoprolol fumarate', 'product_logistics')
+   [8] ('bisoprolol fumarate and hydrochlorothiazide', 'general_info')
+   [9] ('bisoprolol fumarate', 'product_logistics')
+   [10] ('bisoprolol fumarate', 'product_logistics')
+------------------------------------------------------------
 ❓ QUESTION: Is BusPIRone safe for patients with liver problems?
-🎯 EXPECTED: [('buspirone hydrochloride', 'safety_risk')]
+🎯 EXPECTED: [('buspirone hydrochloride', 'special_populations')]
 ❌ RETRIEVED:
    [1] ('description', 'safety_risk')
    [2] ('description', 'safety_risk')
@@ -179,20 +179,6 @@
    [8] ('acyclovir', 'adverse_interactions')
    [9] ('acyclovir', 'adverse_interactions')
 ------------------------------------------------------------
-❓ QUESTION: O Aciclovir pode ser tomado durante a gravidez?
-🎯 EXPECTED: [('acyclovir', 'safety_risk')]
-❌ RETRIEVED:
-   [1] ('prescribing information acyclovir', 'special_populations')
-   [2] ('acyclovir', 'general_info')
-   [3] ('acyclovir and acyclovir usprx only', 'special_populations')
-   [4] ('acyclovir and acyclovir', 'special_populations')
-   [5] ('acyclovir', 'special_populations')
-   [6] ('acyclovir 400 and 800', 'special_populations')
-   [7] ('acyclovir 400 and 800', 'special_populations')
-   [8] ('acyclovir', 'special_populations')
-   [9] ('acyclovir', 'special_populations')
-   [10] ('acyclovir', 'special_populations')
-------------------------------------------------------------
 ❓ QUESTION: ¿Qué pasa si se administra Cephalexin a alguien con hipersensibilidad a las cefalosporinas?
 🎯 EXPECTED: [('cephalexin for', 'safety_risk')]
 ❌ RETRIEVED:
@@ -217,7 +203,7 @@
    [5] ('acyclovir 400', 'general_info')
    [6] ('acyclovir', 'general_info')
    [7] ('acyclovir usp200', 'general_info')
-   [8] ('acyclovircapsules uspacyclovirtablets usprx only', 'general_info')
-   [9] ('acyclovircapsules uspacyclovirtablets usp894089438947rx only', 'general_info')
-   [10] ('acyclovircapsules uspacyclovirtablets usp894089438947rx only', 'general_info')
+   [8] ('acyclovir', 'general_info')
+   [9] ('acyclovir', 'general_info')
+   [10] ('acyclovir 200', 'general_info')
 ------------------------------------------------------------

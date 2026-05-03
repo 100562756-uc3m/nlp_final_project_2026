@@ -194,7 +194,7 @@ python -m scripts.evaluate_rag \
 After running the evaluation, launch the Streamlit dashboard to view tables and line charts interactively:
 
 ```bash
-streamlit run dashboard.py
+streamlit run evaluation/dashboard_unified.py
 ```
 
 The dashboard shows:

@@ -4,27 +4,27 @@
         "threshold": 0.2
     },
     "metrics_total": {
-        "hit": 0.6,
-        "rec": 0.6,
-        "prec": 0.4156,
-        "mrr": 0.5333,
-        "lat_avg": 122.1,
-        "lat_p95": 481.01
+        "hit": 0.625,
+        "rec": 0.625,
+        "prec": 0.4406,
+        "mrr": 0.5396,
+        "lat_avg": 66.93,
+        "lat_p95": 71.87
     },
     "metrics_english": {
-        "hit": 0.6538,
-        "rec": 0.6538,
-        "prec": 0.5,
-        "mrr": 0.5769,
-        "lat_avg": 68.96,
-        "lat_p95": 75.29
+        "hit": 0.6923,
+        "rec": 0.6923,
+        "prec": 0.5288,
+        "mrr": 0.6154,
+        "lat_avg": 64.36,
+        "lat_p95": 67.67
     },
     "metrics_foreign": {
         "hit": 0.5,
         "rec": 0.5,
-        "prec": 0.2589,
-        "mrr": 0.4524,
-        "lat_avg": 71.63,
-        "lat_p95": 91.88
+        "prec": 0.2768,
+        "mrr": 0.3988,
+        "lat_avg": 65.24,
+        "lat_p95": 68.53
     }
 }
