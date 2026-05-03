@@ -1,14 +1,21 @@
-import json, time, csv, sys
+import json
+import time
+import csv
+import sys
+import re  
 from pathlib import Path
+
+# Add root to path so src and app are discoverable
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.system import get_bot_response
 from src.api import call_uc3m_api
 from src.constants import DEFAULT_K, DEFAULT_THRESHOLD 
 
-# Add root to path
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
-
 def get_evaluator_prompt(question, context, answer):
+    """Prompt for the LLM-as-a-Judge to grade medical accuracy."""
     return f"""
     You are a Medical Quality Auditor for a RAG system. 
     Evaluate the following answer based on the provided clinical context.
@@ -28,8 +35,7 @@ def get_evaluator_prompt(question, context, answer):
     """
 
 def run_gen_eval(eval_set_path, output_path):
-    # Load models/index (Similar to your app.py setup)
-    # This assumes you have access to the load_rag_system logic
+    # Load models/index (imports here to avoid global loading issues)
     from app import load_rag_system
     model, reranker, index, chunks = load_rag_system()
 
@@ -50,27 +56,37 @@ def run_gen_eval(eval_set_path, output_path):
         )
         latency = time.time() - start_t
 
-        # 2. Check for Refusal
+        # 2. Check for Refusal (Consistency check with system message)
         is_refusal = "I'm sorry, I don't have enough information" in answer
         refusal_ok = (is_refusal == q['expected_refusal'])
 
         # 3. If it's not a refusal, let's judge the quality
         g_score, r_score, reason = 0, 0, "Refusal Case"
+        
         if not is_refusal and retrieved:
             context_text = "\n".join([c['content'] for c in retrieved])
             eval_resp = call_uc3m_api(get_evaluator_prompt(q['question'], context_text, answer))
             
-            # Parse scores using regex
+            # Flexible Parsing logic to avoid "Error parsing" failures
             try:
-                g_score = int(re.search(r"Groundedness: (\d)", eval_resp).group(1))
-                r_score = int(re.search(r"Relevance: (\d)", eval_resp).group(1))
-                reason = re.search(r"Reasoning: (.*)", eval_resp).group(1)
-            except:
-                reason = "Error parsing evaluator response"
+                g_match = re.search(r"Groundedness:\s*(\d)", eval_resp, re.IGNORECASE)
+                r_match = re.search(r"Relevance:\s*(\d)", eval_resp, re.IGNORECASE)
+                reason_match = re.search(r"Reasoning:\s*(.*)", eval_resp, re.IGNORECASE)
 
+                g_score = int(g_match.group(1)) if g_match else 0
+                r_score = int(r_match.group(1)) if r_match else 0
+                reason = reason_match.group(1).strip() if reason_match else eval_resp.strip().replace("\n", " ")
+                
+                if g_score == 0 or r_score == 0:
+                    reason = f"Parsing Warning: Could not find scores in: {eval_resp[:50]}..."
+            except Exception as e:
+                reason = f"Parsing Error: {str(e)}"
+
+        # Save results including language for the dashboard
         results.append({
             "id": q['id'],
             "question": q['question'],
+            "language": q.get('language', 'en'), # Added for dashboard_gen.py
             "expected_refusal": q['expected_refusal'],
             "actual_refusal": is_refusal,
             "refusal_correct": refusal_ok,
@@ -81,10 +97,16 @@ def run_gen_eval(eval_set_path, output_path):
         })
 
     # Save to CSV
-    with open(output_path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=results[0].keys())
-        writer.writeheader()
-        writer.writerows(results)
+    output_file = Path(output_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(output_file, 'w', newline='', encoding='utf-8') as f:
+        if results:
+            writer = csv.DictWriter(f, fieldnames=results[0].keys())
+            writer.writeheader()
+            writer.writerows(results)
+    
+    print(f"Evaluation complete. Results saved to {output_path}")
 
 if __name__ == "__main__":
     run_gen_eval("evaluation/dailymed_eval_v2.jsonl", "evaluation/generation_results.csv")
