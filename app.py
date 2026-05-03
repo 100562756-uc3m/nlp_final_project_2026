@@ -1,3 +1,20 @@
+"""
+This is the primary entry point for the User Interface of the DailyMed RAG 
+Chatbot. It uses Streamlit to create a web-based chat experience where 
+users can query a clinical database.
+
+KEY FEATURES:
+    1.  Multilingual Chat: Supports 8 languages with auto-detection.
+    2.  RAG Integration: Connects the FAISS vector database and LLM pipeline.
+    3.  Interactive UI: Includes audio playback (TTS), suggested follow-up 
+        questions, and source transparency.
+    4.  Export Functionality: Allows users to download their clinical search 
+        history as a .txt file.
+
+HOW TO RUN:
+    From the project root directory, run the following command in your terminal:
+    streamlit run app.py
+"""
 from __future__ import annotations
 
 import streamlit as st
@@ -18,18 +35,28 @@ from src.system import (
     assess_retrieval_quality 
 )
 
+# --- CONFIGURATION ---
 st.set_page_config(page_title="UC3M NLP Project - DailyMed", layout="wide")
 
-# Directory setup
+# Directory where the FAISS index and metadata chunks are stored
 INDEX_DIR = "data/vector_db/smart_index"
 
+# --- HELPER FUNCTIONS ---
+
 def render_audio_button(text, language_name):
-    """Generates audio in memory and plays it in Streamlit."""
+    """
+    Converts text to speech using Google TTS and renders an audio 
+    player in the Streamlit UI.
+
+    Args:
+        text (str): The clinical answer to read aloud.
+        language_name (str): Full name of the language (e.g., 'Spanish').
+    """
     try:
         lang_code = get_language_code(language_name)
         tts = gTTS(text=text, lang=lang_code)
         
-        # In-memory generation to avoid temporary files
+        # We use a BytesIO buffer to handle audio in-memory (no temporary files needed)
         audio_fp = io.BytesIO()
         tts.write_to_fp(audio_fp)
         audio_fp.seek(0)
@@ -40,19 +67,29 @@ def render_audio_button(text, language_name):
         
 @st.cache_resource
 def load_rag_system():
+    """
+    Loads the FAISS index and AI models into memory. 
+    The @st.cache_resource decorator ensures this happens only once 
+    when the app starts, rather than on every user click.
+    """
     return load_faiss_bundle(INDEX_DIR)
 
 def set_next_query(query):
+    """
+    Updates the session state to trigger a new query. 
+    Used by the 'Suggested Question' buttons.
+    """
     st.session_state.next_query = query
 
-# Initialize system
+# --- INITIALIZATION ---
+# Load the heavy models and index with a visual spinner
 with st.spinner("Loading clinical database... Please wait."):
     model, reranker, index, chunks = load_rag_system()
 
 # --- HEADER SECTION ---
 st.title("DailyMed RAG Chatbot")
 
-# Enhanced Description and Instructions
+# Introductory expander with project context and instructions
 with st.expander("About this Assistant & How to use", expanded=True):
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -77,7 +114,8 @@ with st.expander("About this Assistant & How to use", expanded=True):
         if st.button("Acyclovir safety warnings?"):
             st.session_state.next_query = "What are the safety warnings for Acyclovir?"
 
-# --- INITIALIZE STATE ---
+# --- SESSION STATE MANAGEMENT ---
+# Ensures the chat history persists across UI refreshes
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "next_query" not in st.session_state:
@@ -85,6 +123,7 @@ if "next_query" not in st.session_state:
 
 # --- SIDEBAR ---
 st.sidebar.header("Retrieval Settings")
+# Allows users to tune the RAG sensitivity on the fly
 top_k = st.sidebar.slider("Top-K (Context Chunks)", min_value=1, max_value=10, value=DEFAULT_K)
 score_threshold = st.sidebar.slider("Similarity threshold", min_value=0.0, max_value=1.0, value=DEFAULT_THRESHOLD, step=0.01)
 enable_summary = st.sidebar.toggle("Auto-summary", value=False)
@@ -98,6 +137,7 @@ if st.sidebar.button("Clear Chat"):
 with st.sidebar:
     st.markdown("### Export")
     if "messages" in st.session_state and len(st.session_state.messages) > 0:
+        # Build a plain-text representation of the chat for download
         chat_history = ""
         for msg in st.session_state.messages:
             role_label = "User" if msg["role"] == "user" else "Assistant"
@@ -117,7 +157,7 @@ with st.sidebar:
                     score = s.get('score', 0.0)
                     content = s.get('content', 'No content available.')
                     
-                    # Formato detallado para el .txt
+                    # Detailed format for the .txt file
                     chat_history += f"--- SOURCE {idx} ---\n"
                     chat_history += f"Drug: {drug_name} | Group: {group}\n"
                     chat_history += f"Similarity Score: {score:.3f}\n"
@@ -142,9 +182,9 @@ for i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-        # ----------Botón de Voz (Audio)------------
+        # Voice/TTS Integration
         if msg["role"] == "assistant" and msg.get("content"):
-            # Solo mostramos el botón si la respuesta no es el mensaje de error/refusal
+            # We only show the button if the response is not the error/refusal message
             if "I'm sorry" not in msg["content"]:
                 if st.button("🔊 Listen to response", key=f"voice_{i}"):
                     # Usamos el idioma guardado en el mensaje o inglés por defecto
@@ -155,7 +195,7 @@ for i, msg in enumerate(st.session_state.messages):
         if msg["role"] == "assistant" and msg.get("elapsed"):
             st.caption(f"Response time: {msg['elapsed']:.2f} seconds")
 
-        # Badge de calidad del retrieval  ← NUEVO
+        # Quality Warnings (Low similarity detected in RAG)
         if msg["role"] == "assistant" and msg.get("retrieval_quality"):
             quality = msg["retrieval_quality"]
             if quality == "weak":
@@ -228,6 +268,7 @@ else:
     user_query = None
     query_triggered = False
 
+# --- ASSISTANT LOGIC EXECUTION ---
 if query_triggered:
     start_time = time.time()
     
