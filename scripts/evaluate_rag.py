@@ -1,3 +1,19 @@
+"""
+evaluate_retrieval_only.py
+===========================
+Retrieval-only evaluation script for the DailyMed RAG pipeline.
+ 
+This script measures retrieval quality metrics (Hit@K, Recall@K, Precision@K, MRR)
+WITHOUT calling the LLM, which avoids memory issues caused by loading the full
+chunk content. The FAISS metadata is read in streaming mode and only the
+(drug_name, section) pair is kept per chunk, drastically reducing RAM usage.
+ 
+Results are broken down by:
+  - All answerable questions
+  - English-only questions
+  - Non-English (foreign) questions
+"""
+
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -13,21 +29,31 @@ if str(PROJECT_ROOT) not in sys.path:
 import faiss
 from sentence_transformers import SentenceTransformer
 
+# translate_to_english: calls the LLM to translate non-English queries before retrieval,
+# simulating the real system behavior in src/system.py
 from src.system import translate_to_english
-# Importamos el mapeo de Super-Grupos para traducir lo que devuelve FAISS
+# SUPER_GROUP_MAP: maps raw section names from the FAISS metadata (e.g. "DOSAGE AND ADMINISTRATION")
 from src.constants import SUPER_GROUP_MAP
 
+
+# Grid search parameter space
 EMBED_MODEL = "sentence-transformers/all-mpnet-base-v2"
 K_VALUES    = [3, 5, 8, 10]
 T_VALUES    = [0.20, 0.30, 0.40, 0.60, 0.80]
 
-# ── Helpers y Limpieza de Fármacos ────────────────────────────────────────────
+#Helpers 
 def normalize(t: str) -> str:
+    """
+    Lowercase, remove punctuation, and collapse whitespace.
+    Used for both drug names and section titles before comparison.
+    """
     if not t: return ""
     t = re.sub(r"[^\w\s]", "", str(t).lower())
     return re.sub(r"\s+", " ", t).strip()
 
-# ¡Restauramos tu lista de palabras fantasma para los fármacos!
+
+# Words that appear in drug names but carry no semantic value for matching.
+# Removing them reduces false negatives when comparing retrieved vs expected drug names.
 DRUG_NOISE_WORDS = [
     "tablets", "tablet", "capsules", "capsule", "injection", "solution",
     "cream", "ointment", "gel", "patch", "suspension", "syrup", "drops",
@@ -36,34 +62,49 @@ DRUG_NOISE_WORDS = [
 ]
 
 def normalize_drug_name(name: str) -> str:
+    """
+    Apply normalize() and additionally strip pharmaceutical noise words
+    (dosage forms, units, routes) so that 'Acyclovir Tablets USP 400mg'
+    and 'Acyclovir' are treated as the same drug.
+    """
     name = normalize(name)
     for w in DRUG_NOISE_WORDS:
         name = re.sub(rf'\b{w}\b', '', name)
     return re.sub(r"\s+", " ", name).strip()
 
 def expected_keys(expected_support: list) -> list:
+    """
+    Convert the expected_support list from a JSONL eval item into a list of
+    (normalized_drug_name, normalized_section) tuples used for matching.
+    """
     return [
         (normalize_drug_name(s.get("drug_name", "")), normalize(s.get("section_title", "")))
         for s in expected_support
     ]
 
+
 def fuzzy_match(str1: str, str2: str, threshold=0.75) -> bool:
+    """
+    Return True if the two strings are at least `threshold` similar
+    according to SequenceMatcher (Levenshtein-like ratio).
+    Used to tolerate minor spelling differences in drug names and section titles.
+    """
     if not str1 or not str2: return False
     return difflib.SequenceMatcher(None, str1, str2).ratio() >= threshold
 
 def is_match(retrieved_tuple: tuple, expected_tuple: tuple) -> bool:
-    r_drug, r_sec = retrieved_tuple # r_sec ya viene traducido a Super-Grupo desde idx_map
-    e_drug, e_sec = expected_tuple  # e_sec es el Super-Grupo del JSON (ej. "usage_clinical")
+    r_drug, r_sec = retrieved_tuple
+    e_drug, e_sec = expected_tuple  # e_sec is the canonical super-group label from the eval set
     
-    # 1. Match de Droga (usando las drogas limpias de USP, etc.)
+    # 1. Match the Drug 
     drug_match = (e_drug in r_drug) or (r_drug in e_drug) or fuzzy_match(e_drug, r_drug, 0.65)
     
-    # 2. Match de Sección directa (Super-Group vs Super-Group)
+    # 2. Match the Super-Group
     sec_match = (e_sec == r_sec) or (e_sec in r_sec) or (r_sec in e_sec)
     
     return drug_match and sec_match
 
-# ── Carga Inteligente del Metadata de FAISS ───────────────────────────────────
+# Metadata loading and indexing
 def build_idx_map(meta_path: str) -> dict:
     print(f"Reading metadata from {meta_path} (streaming, light)...")
     idx_map = {}
@@ -74,23 +115,29 @@ def build_idx_map(meta_path: str) -> dict:
             
             chunk = json.loads(line)
             meta = chunk.get("metadata", {})
+
+            # Support both old schema (top-level drug_name/section_title)
+            # and new schema (nested metadata.drug / metadata.group)
             raw_drug = meta.get("drug", chunk.get("drug_name", ""))
-            
-            # Cogemos la sección que haya en la BD (puede ser "group", "category" o el título)
             raw_sec = meta.get("group", meta.get("category", chunk.get("section_title", "")))
-            
-            # TRUCO: Convertimos lo que haya en la BD (ej. "DOSAGE AND ADMINISTRATION") 
-            # a formato constante ("DOSAGE_AND_ADMINISTRATION") para buscar su Super-Grupo
+
+            # Convert the raw section string to the SUPER_GROUP_MAP key format
+            # Look up the canonical super-group; fall back to the cleaned string if not found
             clean_raw_sec = raw_sec.strip().upper().replace(" ", "_")
             super_group = SUPER_GROUP_MAP.get(clean_raw_sec, clean_raw_sec)
             
-            # Guardamos el fármaco LIMPIO y la sección traducida a Super-Grupo ("usage_clinical")
+            # Store only the two strings we need — not the full chunk content
             idx_map[i] = (normalize_drug_name(raw_drug), normalize(super_group))
             
     print(f"  Done — {len(idx_map)} chunks indexed.")
     return idx_map
 
 def is_toc_chunk(drug: str, sec: str) -> bool:
+    """
+    Return True if this chunk looks like a table-of-contents entry.
+    TOC chunks have no real drug association and pollute retrieval results,
+    so they are filtered out during retrieval.
+    """
     toc_section_names = {
         "general_info", "table of contents", "contents", 
         "full prescribing information contents",
@@ -100,8 +147,13 @@ def is_toc_chunk(drug: str, sec: str) -> bool:
         return True
     return False
 
-# ── Recuperación FAISS ────────────────────────────────────────────────────────
+# Retrieval
 def retrieve(query, model, index, idx_map, k, threshold):
+    """
+    Encode the query, search the FAISS index for the top-K nearest neighbors,
+    filter by cosine similarity threshold, and return a list of
+    (normalized_drug, normalized_section) tuples.
+    """
     vec = model.encode([query], normalize_embeddings=True).astype("float32")
     distances, indices = index.search(vec, k)
     
@@ -119,29 +171,55 @@ def retrieve(query, model, index, idx_map, k, threshold):
         
     return results
 
-# ── Métricas ──────────────────────────────────────────────────────────────────
-def hit_at_k(retrieved_tuples, exp_list):      
+# Retrieval metrics
+def hit_at_k(retrieved_tuples, exp_list): 
+    """
+    Hit@K: returns True if at least one retrieved chunk matches any expected chunk.
+    Binary metric — does not account for how many expected chunks were found.
+    """     
     return any(is_match(r, e) for r in retrieved_tuples for e in exp_list)
-def recall_at_k(retrieved_tuples, exp_list):   
+
+def recall_at_k(retrieved_tuples, exp_list):
+    """
+    Recall@K = |relevant ∩ top-K| / |relevant|
+    Fraction of the expected chunks that appear in the retrieved top-K results.
+    More informative than Hit@K when a question has multiple expected chunks.
+    """   
     if not exp_list: return 0.0
     matches = sum(1 for e in exp_list if any(is_match(r, e) for r in retrieved_tuples))
     return matches / len(exp_list)
-def precision_at_k(retrieved_tuples, exp_list, k): 
+def precision_at_k(retrieved_tuples, exp_list, k):
+    """
+    Precision@K = |relevant ∩ top-K| / K
+    Fraction of the K retrieved chunks that are actually relevant.
+    Penalizes retrieving many irrelevant chunks alongside the relevant ones.
+    """
     if not retrieved_tuples: return 0.0
     top_k = retrieved_tuples[:k]
     matches = sum(1 for r in top_k if any(is_match(r, e) for e in exp_list))
     return matches / k
 def mrr_score(retrieved_tuples, exp_list):
+    """
+    MRR (Mean Reciprocal Rank) = 1 / rank of the first relevant result.
+    Rewards systems that place the best result at the top of the list.
+    MRR = 1.0 if the relevant chunk is rank 1, 0.5 if rank 2, etc.
+    Returns 0.0 if no relevant chunk is found in the top-K results.
+    """
     for rank, r in enumerate(retrieved_tuples, 1):
         if any(is_match(r, e) for e in exp_list): 
             return 1.0 / rank
     return 0.0
 def p95(vals):
+    """
+    95th percentile of a list of values.
+    Used for latency reporting: p95 latency indicates the worst-case
+    response time experienced by 95% of queries.
+    """
     if not vals: return 0.0
     s = sorted(vals)
     return s[max(0, int(round(0.95 * (len(s) - 1))))]
 
-# ── Runner de Evaluación ──────────────────────────────────────────────────────
+# Subset evaluation
 def eval_subset(subset, model, index, idx_map, k, threshold, collect_errors=False):
     hits, recs, precs, mrrs, lats = [], [], [], [], []
     failed_logs, detailed_logs = [], []
@@ -200,7 +278,7 @@ def eval_subset(subset, model, index, idx_map, k, threshold, collect_errors=Fals
     }
     return metrics, failed_logs, detailed_logs
 
-# ── Ejecución Principal ───────────────────────────────────────────────────────
+# Main evaluation loop
 def main():
     import argparse
     parser = argparse.ArgumentParser()
@@ -216,7 +294,8 @@ def main():
         for line in f:
             line = line.strip()
             if line: questions.append(json.loads(line))
-            
+    
+    # Only answerable questions have expected_support and meaningful retrieval targets
     answerable = [q for q in questions if not q.get("expected_refusal")]
     
     print(f"Loaded {len(answerable)} answerable eval questions.")
@@ -261,11 +340,13 @@ def main():
             r_english, _, _  = eval_subset(english_q,  model, index, idx_map, k, t)
             r_foreign, _, _  = eval_subset(foreign_q,  model, index, idx_map, k, t)
             
+            # Save error log for the most permissive config (largest k, lowest threshold)
+            # This config has the best theoretical recall, so failures here are genuine hard cases
             if k == 10 and t == 0.20: 
                 best_errors = errors
             
             results.append({"k": k, "t": t, "all": r_all, "english": r_english, "foreign": r_foreign})
-
+             # Save per-combination detail CSV and summary JSON for dashboard drill-down and error analysis
             file_prefix = f"k{k}_t{t:.2f}"
             
             detail_csv_path = combinations_dir / f"{file_prefix}_details.csv"
@@ -285,6 +366,9 @@ def main():
             with open(combinations_dir / f"{file_prefix}_summary.json", "w", encoding="utf-8") as f:
                 json.dump(summary_data, f, indent=4)
 
+    # Error analysis report (k=10, t=0.20)
+    # Useful for understanding which questions are genuinely hard to retrieve,
+    # independent of the threshold — these may need better chunking or query rewriting
     error_path = out / "error_analysis_report.txt"
     with open(error_path, "w", encoding="utf-8") as f:
         f.write("=== ERROR ANALYSIS REPORT (K=10, Th=0.20) ===\n")
@@ -295,7 +379,7 @@ def main():
             for rank, doc in enumerate(err['retrieved'], 1):
                 f.write(f"   [{rank}] {doc}\n")
             f.write("-" * 60 + "\n")
-
+    # Global comparison CSV
     csv_path = out / "grid_retrieval_comparison.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
@@ -319,6 +403,46 @@ def main():
     for r in results:
         a, e, f = r["all"], r["english"], r["foreign"]
         print(f"{r['k']:>4} | {r['t']:>7.2f} | {a['hit']:>10.4f} | {e['hit']:>12.4f} | {f['hit']:>11.4f}")
+
+    # ── Top 3 best configurations ─────────────────────────────────────────────────
+    print("\n" + "="*50)
+    print("TOP 3 BEST CONFIGURATIONS")
+    print("="*50)
+
+    # 1. Buscamos la latencia mínima y máxima de todo el grid para poder normalizarla
+    latencies = [r["all"]["lat_avg"] for r in results]
+    lat_min = min(latencies)
+    lat_max = max(latencies)
+
+    # 2. Calculamos el "Composite Score" igual que en el Dashboard:
+    # Recall (35%), MRR (30%), Precision (20%), Latency (15% invertida)
+    scored = []
+    for r in results:
+        a = r["all"]
+        
+        # Normalización invertida de la latencia (más rápido = más cerca de 1.0)
+        if lat_max > lat_min:
+            lat_norm = 1.0 - (a["lat_avg"] - lat_min) / (lat_max - lat_min)
+        else:
+            lat_norm = 1.0
+            
+        score = (0.35 * a["rec"]) + (0.30 * a["mrr"]) + (0.20 * a["prec"]) + (0.15 * lat_norm)
+        scored.append((score, r))
+
+    # Ordenamos de mayor a menor puntuación
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    medals = ["1º", "2º", "3º"]
+    for i, (score, r) in enumerate(scored[:3]):
+        a, e, fr = r["all"], r["english"], r["foreign"]
+        print(f"\n{medals[i]} Rank {i+1} — K={r['k']}, Threshold={r['t']:.2f}  (score={score:.4f})")
+        print(f"   Hit@K={a['hit']}  Recall@K={a['rec']}  Precision@K={a['prec']}  MRR={a['mrr']}")
+        print(f"   Latency avg={a['lat_avg']}ms  p95={a['lat_p95']}ms")
+        print(f"   English → Hit={e['hit']}  MRR={e['mrr']}")
+        print(f"   Foreign → Hit={fr['hit']}  MRR={fr['mrr']}")
+
+    print(f"\n→ Recommended config: K={scored[0][1]['k']}, Threshold={scored[0][1]['t']:.2f}")
+    print("="*50)
 
 if __name__ == "__main__":
     main()

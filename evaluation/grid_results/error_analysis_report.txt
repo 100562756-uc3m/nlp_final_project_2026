@@ -86,16 +86,30 @@
 ❓ QUESTION: ¿Para qué enfermedades víricas se puede usar el Aciclovir?
 🎯 EXPECTED: [('acyclovir', 'usage_clinical')]
 ❌ RETRIEVED:
-   [1] ('acyclovir 5', 'general_info')
+   [1] ('spl unclassified section', 'usage_clinical')
    [2] ('acyclovir', 'general_info')
-   [3] ('acyclovir', 'general_info')
+   [3] ('acyclovir 5', 'general_info')
    [4] ('acyclovir', 'general_info')
-   [5] ('acyclovir 400', 'general_info')
+   [5] ('acyclovir', 'general_info')
    [6] ('acyclovir 400 and 800', 'general_info')
-   [7] ('acyclovir 400 and 800', 'general_info')
+   [7] ('acyclovir', 'adverse_interactions')
    [8] ('acyclovir 400 and 800', 'general_info')
+   [9] ('acyclovir usp400 and 800', 'general_info')
+   [10] ('acyclovir 400 and 800', 'general_info')
+------------------------------------------------------------
+❓ QUESTION: Quelle est la fréquence de prise de l'aciclovir pour le zona ?
+🎯 EXPECTED: [('acyclovir', 'usage_clinical')]
+❌ RETRIEVED:
+   [1] ('acy 400mg', 'general_info')
+   [2] ('acyclovir usp200', 'general_info')
+   [3] ('acyclovir 200', 'general_info')
+   [4] ('acyclovir 400', 'general_info')
+   [5] ('prescribing information acyclovir', 'general_info')
+   [6] ('acyclovir acyclovir 8940 8943 8947', 'general_info')
+   [7] ('acyclovir acyclovir', 'general_info')
+   [8] ('acyclovir', 'general_info')
    [9] ('acyclovir 400 and 800', 'general_info')
-   [10] ('acyclovir 200 nivagen pharmaceuticals inc', 'general_info')
+   [10] ('acyclovir 400 and 800', 'general_info')
 ------------------------------------------------------------
 ❓ QUESTION: Welche Nierenprobleme können bei der Einnahme von Acyclovir auftreten?
 🎯 EXPECTED: [('acyclovir', 'safety_risk')]
@@ -124,20 +138,6 @@
    [8] ('cephalexin', 'general_info')
    [9] ('cephalexin', 'general_info')
    [10] ('cephalexin', 'general_info')
-------------------------------------------------------------
-❓ QUESTION: बस्पिरोन हाइड्रोक्लोराइड टैबलेट किस मानसिक स्थिति के इलाज के लिए उपयोग की जाती है?
-🎯 EXPECTED: [('buspirone hydrochloride', 'usage_clinical')]
-❌ RETRIEVED:
-   [1] ('buspirone hydrochloride', 'product_logistics')
-   [2] ('buspirone hydrochloride', 'product_logistics')
-   [3] ('buspirone hydrochloride', 'product_logistics')
-   [4] ('buspirone hydrochloride', 'product_logistics')
-   [5] ('buspirone hydrochloride', 'product_logistics')
-   [6] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
-   [7] ('buspirone hydrochloride', 'product_logistics')
-   [8] ('buspirone hydrochloride', 'product_logistics')
-   [9] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
-   [10] ('buspirone hydrochloride patient instruction sheet included', 'product_logistics')
 ------------------------------------------------------------
 ❓ QUESTION: Is BusPIRone safe for patients with liver problems?
 🎯 EXPECTED: [('buspirone hydrochloride', 'safety_risk')]

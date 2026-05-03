@@ -6,25 +6,25 @@
     "metrics_total": {
         "hit": 0.575,
         "rec": 0.575,
-        "prec": 0.415,
-        "mrr": 0.4979,
-        "lat_avg": 127.29,
-        "lat_p95": 343.48
+        "prec": 0.425,
+        "mrr": 0.5292,
+        "lat_avg": 140.09,
+        "lat_p95": 430.47
     },
     "metrics_english": {
         "hit": 0.6154,
         "rec": 0.6154,
         "prec": 0.4923,
         "mrr": 0.5705,
-        "lat_avg": 163.04,
-        "lat_p95": 735.26
+        "lat_avg": 180.3,
+        "lat_p95": 1040.64
     },
     "metrics_foreign": {
         "hit": 0.5,
         "rec": 0.5,
-        "prec": 0.2714,
-        "mrr": 0.3631,
-        "lat_avg": 285.3,
-        "lat_p95": 965.56
+        "prec": 0.3,
+        "mrr": 0.4524,
+        "lat_avg": 70.53,
+        "lat_p95": 73.76
     }
 }

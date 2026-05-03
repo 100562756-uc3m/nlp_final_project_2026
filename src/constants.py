@@ -155,7 +155,7 @@ SUPER_GROUP_MAP = {
 # --- OPTIMAL RETRIEVAL SETTINGS ---
 # Based on grid_retrieval_comparison.csv analysis
 DEFAULT_K = 8
-DEFAULT_THRESHOLD = 0.40
+DEFAULT_THRESHOLD = 0.60
 
 # --- CHUNKING SETTINGS ---
 # Optimized for all-mpnet-base-v2 (512 token window)
