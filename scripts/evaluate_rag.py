@@ -1,20 +1,35 @@
 """
-evaluate_retrieval_only.py
-===========================
-Retrieval-only evaluation script for the DailyMed RAG pipeline.
- 
-This script measures retrieval quality metrics (Hit@K, Recall@K, Precision@K, MRR)
-WITHOUT calling the LLM, which avoids memory issues caused by loading the full
-chunk content. The FAISS metadata is read in streaming mode and only the
-(drug_name, section) pair is kept per chunk, drastically reducing RAM usage.
- 
-Results are broken down by:
-  - All answerable questions
-  - English-only questions
-  - Non-English (foreign) questions
+This script performs a "Grid Search" evaluation to find the optimal settings for 
+the RAG (Retrieval-Augmented Generation) system. It tests different combinations 
+of:
+  1. Top-K (How many documents to retrieve: 3, 5, 8, 10).
+  2. Similarity Threshold (Minimum cosine similarity score: 0.20 to 0.80).
+
+The script simulates the production environment by translating non-English 
+queries into English before searching the clinical database (DailyMed).
+
+KEY OUTPUTS:
+  - grid_retrieval_comparison.csv: A global matrix of all tested configurations.
+  - combinations/: A directory containing detailed CSV logs for every single query 
+    under every tested parameter set.
+  - error_analysis_report.txt: A breakdown of the hardest questions to answer 
+    (failures at the most permissive settings).
+
+HOW TO RUN:
+Ensure your PYTHONPATH is set to the project root and run:
+    python scripts/evaluate_rag.py --eval-set evaluation/dailymed_eval_v2.jsonl
+
+METRICS CALCULATED:
+  - Hit@K: Did the system find at least one correct source?
+  - Recall@K: What fraction of all required sources were found?
+  - Precision@K: What fraction of retrieved sources were actually relevant?
+  - MRR (Mean Reciprocal Rank): How high up in the list was the best source?
+  - Latency: Average and 95th percentile (p95) response times in milliseconds.
+================================================================================
 """
 
 import os
+# Environment optimization for FAISS and Tokenizers
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -22,6 +37,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import json, re, sys, time, csv, difflib
 from pathlib import Path
 
+# --- SYSTEM PATH CONFIGURATION ---
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -29,28 +45,26 @@ if str(PROJECT_ROOT) not in sys.path:
 import faiss
 from sentence_transformers import SentenceTransformer
 
-# translate_to_english: calls the LLM to translate non-English queries before retrieval,
-# simulating the real system behavior in src/system.py
+# Custom imports from our project source
 from src.system import translate_to_english
-# SUPER_GROUP_MAP: maps raw section names from the FAISS metadata (e.g. "DOSAGE AND ADMINISTRATION")
 from src.constants import SUPER_GROUP_MAP
 
 
-# Grid search parameter space
+# --- EVALUATION PARAMETERS ---
 EMBED_MODEL = "sentence-transformers/all-mpnet-base-v2"
 K_VALUES    = [3, 5, 8, 10]
 T_VALUES    = [0.20, 0.30, 0.40, 0.60, 0.80]
 
-#Helpers 
+# --- TEXT NORMALIZATION HELPERS ---
+
 def normalize(t: str) -> str:
     """
-    Lowercase, remove punctuation, and collapse whitespace.
-    Used for both drug names and section titles before comparison.
+    Standardizes text for comparison.
+    Converts to lowercase, removes punctuation, and collapses multiple spaces.
     """
     if not t: return ""
     t = re.sub(r"[^\w\s]", "", str(t).lower())
     return re.sub(r"\s+", " ", t).strip()
-
 
 # Words that appear in drug names but carry no semantic value for matching.
 # Removing them reduces false negatives when comparing retrieved vs expected drug names.
@@ -82,7 +96,6 @@ def expected_keys(expected_support: list) -> list:
         for s in expected_support
     ]
 
-
 def fuzzy_match(str1: str, str2: str, threshold=0.75) -> bool:
     """
     Return True if the two strings are at least `threshold` similar
@@ -93,19 +106,29 @@ def fuzzy_match(str1: str, str2: str, threshold=0.75) -> bool:
     return difflib.SequenceMatcher(None, str1, str2).ratio() >= threshold
 
 def is_match(retrieved_tuple: tuple, expected_tuple: tuple) -> bool:
+    """
+    Core logic to decide if a retrieved chunk is "Correct".
+    Checks both the drug name (partial or fuzzy) and the section super-group.
+    """
     r_drug, r_sec = retrieved_tuple
     e_drug, e_sec = expected_tuple  # e_sec is the canonical super-group label from the eval set
     
-    # 1. Match the Drug 
+    # 1. Match the Drug: Substring match or fuzzy match
     drug_match = (e_drug in r_drug) or (r_drug in e_drug) or fuzzy_match(e_drug, r_drug, 0.65)
     
-    # 2. Match the Super-Group
+    # 2. Match the Super-Group: Exact or substring match
     sec_match = (e_sec == r_sec) or (e_sec in r_sec) or (r_sec in e_sec)
     
     return drug_match and sec_match
 
-# Metadata loading and indexing
+# --- METADATA AND INDEXING ---
+
 def build_idx_map(meta_path: str) -> dict:
+    """
+    Streams the inspection JSONL and builds a light in-memory map of 
+    row_index -> (drug, section).
+    This allows us to validate hits without loading the full text of chunks.
+    """
     print(f"Reading metadata from {meta_path} (streaming, light)...")
     idx_map = {}
     with open(meta_path, "r", encoding="utf-8") as f:
@@ -147,7 +170,8 @@ def is_toc_chunk(drug: str, sec: str) -> bool:
         return True
     return False
 
-# Retrieval
+# --- RETRIEVAL ENGINE ---
+
 def retrieve(query, model, index, idx_map, k, threshold):
     """
     Encode the query, search the FAISS index for the top-K nearest neighbors,
@@ -160,6 +184,7 @@ def retrieve(query, model, index, idx_map, k, threshold):
     results = []
     for dist, idx in zip(distances[0], indices[0]):
         if idx < 0: continue
+        # L2 to Cosine Similarity conversion
         sim = 1.0 - (float(dist) / 2.0)
         if sim < threshold: continue
         
@@ -171,7 +196,8 @@ def retrieve(query, model, index, idx_map, k, threshold):
         
     return results
 
-# Retrieval metrics
+# --- METRICS CALCULATIONS ---
+
 def hit_at_k(retrieved_tuples, exp_list): 
     """
     Hit@K: returns True if at least one retrieved chunk matches any expected chunk.
@@ -188,6 +214,7 @@ def recall_at_k(retrieved_tuples, exp_list):
     if not exp_list: return 0.0
     matches = sum(1 for e in exp_list if any(is_match(r, e) for r in retrieved_tuples))
     return matches / len(exp_list)
+
 def precision_at_k(retrieved_tuples, exp_list, k):
     """
     Precision@K = |relevant ∩ top-K| / K
@@ -198,6 +225,7 @@ def precision_at_k(retrieved_tuples, exp_list, k):
     top_k = retrieved_tuples[:k]
     matches = sum(1 for r in top_k if any(is_match(r, e) for e in exp_list))
     return matches / k
+
 def mrr_score(retrieved_tuples, exp_list):
     """
     MRR (Mean Reciprocal Rank) = 1 / rank of the first relevant result.
@@ -209,6 +237,7 @@ def mrr_score(retrieved_tuples, exp_list):
         if any(is_match(r, e) for e in exp_list): 
             return 1.0 / rank
     return 0.0
+
 def p95(vals):
     """
     95th percentile of a list of values.
@@ -219,8 +248,13 @@ def p95(vals):
     s = sorted(vals)
     return s[max(0, int(round(0.95 * (len(s) - 1))))]
 
-# Subset evaluation
+# --- EVALUATION ENGINE ---
+
 def eval_subset(subset, model, index, idx_map, k, threshold, collect_errors=False):
+    """
+    Evaluates a specific subset of questions (e.g., all English or all Foreign).
+    Collects metrics and optionally logs detailed errors for debugging.
+    """
     hits, recs, precs, mrrs, lats = [], [], [], [], []
     failed_logs, detailed_logs = [], []
     
@@ -228,6 +262,7 @@ def eval_subset(subset, model, index, idx_map, k, threshold, collect_errors=Fals
         exp = expected_keys(q.get("expected_support", []))
         
         t0  = time.perf_counter()
+        # Use English translation if available (simulates multilingual pipeline)
         query_to_search = q.get("question_english", q["question"])
         retrieved_tuples = retrieve(query_to_search, model, index, idx_map, k, threshold)
         lat = (time.perf_counter() - t0) * 1000
@@ -278,7 +313,8 @@ def eval_subset(subset, model, index, idx_map, k, threshold, collect_errors=Fals
     }
     return metrics, failed_logs, detailed_logs
 
-# Main evaluation loop
+# --- MAIN EXECUTION ---
+
 def main():
     import argparse
     parser = argparse.ArgumentParser()
@@ -288,6 +324,7 @@ def main():
     parser.add_argument("--output-dir",default="evaluation/grid_results")
     args = parser.parse_args()
 
+    # Load and Filter Evaluation Questions
     print("Loading and processing evaluation questions...")
     questions = []
     with open(args.eval_set, encoding="utf-8") as f:
@@ -298,9 +335,9 @@ def main():
     # Only answerable questions have expected_support and meaningful retrieval targets
     answerable = [q for q in questions if not q.get("expected_refusal")]
     
+    # Simulation: Translate all foreign questions to English via LLM
     print(f"Loaded {len(answerable)} answerable eval questions.")
     print("Translating foreign questions (simulating system.py behavior)...")
-    
     for i, q in enumerate(answerable):
         lang = q.get("language", "en")
         if lang != "en":
@@ -309,9 +346,11 @@ def main():
         else:
             q["question_english"] = q["question"]
 
+    # Subdivide for language-specific reporting
     english_q = [q for q in answerable if q.get("language", "en") == "en"]
     foreign_q = [q for q in answerable if q.get("language", "en") != "en"]
 
+    # Load RAG Components
     print("\nLoading embedding model...")
     model = SentenceTransformer(EMBED_MODEL)
 
@@ -320,6 +359,7 @@ def main():
 
     idx_map = build_idx_map(args.meta)
 
+    # Prepare Output Directories
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     combinations_dir = out / "combinations"
@@ -330,12 +370,14 @@ def main():
     n_iter = 0
     best_errors = []
 
+    # --- GRID SEARCH START --
     print("\nStarting Evaluation Grid...")
     for k in K_VALUES:
         for t in T_VALUES:
             n_iter += 1
             print(f"[{n_iter}/{total_iters}] Evaluating K={k}, Threshold={t:.2f}...")
             
+            # Evaluate the three subsets
             r_all, errors, details = eval_subset(answerable, model, index, idx_map, k, t, collect_errors=True)
             r_english, _, _  = eval_subset(english_q,  model, index, idx_map, k, t)
             r_foreign, _, _  = eval_subset(foreign_q,  model, index, idx_map, k, t)
@@ -346,9 +388,9 @@ def main():
                 best_errors = errors
             
             results.append({"k": k, "t": t, "all": r_all, "english": r_english, "foreign": r_foreign})
-             # Save per-combination detail CSV and summary JSON for dashboard drill-down and error analysis
-            file_prefix = f"k{k}_t{t:.2f}"
             
+            # Save per-combination detail CSV and summary JSON for dashboard drill-down and error analysis
+            file_prefix = f"k{k}_t{t:.2f}"
             detail_csv_path = combinations_dir / f"{file_prefix}_details.csv"
             if details:
                 keys = details[0].keys()
@@ -357,6 +399,7 @@ def main():
                     dict_writer.writeheader()
                     dict_writer.writerows(details)
             
+            # Save Summary JSON for dashboard usage
             summary_data = {
                 "parameters": {"k": k, "threshold": t},
                 "metrics_total": r_all,
@@ -366,6 +409,8 @@ def main():
             with open(combinations_dir / f"{file_prefix}_summary.json", "w", encoding="utf-8") as f:
                 json.dump(summary_data, f, indent=4)
 
+    # --- REPORTING ---
+    # 1. Hard Error Report
     # Error analysis report (k=10, t=0.20)
     # Useful for understanding which questions are genuinely hard to retrieve,
     # independent of the threshold — these may need better chunking or query rewriting
@@ -379,7 +424,8 @@ def main():
             for rank, doc in enumerate(err['retrieved'], 1):
                 f.write(f"   [{rank}] {doc}\n")
             f.write("-" * 60 + "\n")
-    # Global comparison CSV
+    
+    # 2. Main Grid Comparison CSV
     csv_path = out / "grid_retrieval_comparison.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
@@ -404,23 +450,23 @@ def main():
         a, e, f = r["all"], r["english"], r["foreign"]
         print(f"{r['k']:>4} | {r['t']:>7.2f} | {a['hit']:>10.4f} | {e['hit']:>12.4f} | {f['hit']:>11.4f}")
 
-    # ── Top 3 best configurations ─────────────────────────────────────────────────
+    # 3. Best Config Ranker (Composite Score)
     print("\n" + "="*50)
     print("TOP 3 BEST CONFIGURATIONS")
     print("="*50)
 
-    # 1. Buscamos la latencia mínima y máxima de todo el grid para poder normalizarla
+    # We look for the minimum and maximum latency of the entire grid in order to normalize it
     latencies = [r["all"]["lat_avg"] for r in results]
     lat_min = min(latencies)
     lat_max = max(latencies)
 
-    # 2. Calculamos el "Composite Score" igual que en el Dashboard:
-    # Recall (35%), MRR (30%), Precision (20%), Latency (15% invertida)
+    # We calculate the "Composite Score" as shown in the Dashboard:
+    # Recall (35%), MRR (30%), Precision (20%), Latency (15% inverted)
     scored = []
     for r in results:
         a = r["all"]
         
-        # Normalización invertida de la latencia (más rápido = más cerca de 1.0)
+        # Inverse latency normalization (faster = closer to 1.0)
         if lat_max > lat_min:
             lat_norm = 1.0 - (a["lat_avg"] - lat_min) / (lat_max - lat_min)
         else:
@@ -429,7 +475,7 @@ def main():
         score = (0.35 * a["rec"]) + (0.30 * a["mrr"]) + (0.20 * a["prec"]) + (0.15 * lat_norm)
         scored.append((score, r))
 
-    # Ordenamos de mayor a menor puntuación
+    # We order from highest to lowest score
     scored.sort(key=lambda x: x[0], reverse=True)
 
     medals = ["1º", "2º", "3º"]
